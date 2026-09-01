@@ -56,7 +56,7 @@ Everything MIT-licensed, publicly downloadable, no vendor access required. **~10
 
 | Role | Model | License | Runs |
 |---|---|---|---|
-| ASR + forced alignment | [IndicConformer](https://huggingface.co/ai4bharat/indic-conformer-600m-multilingual) (AI4Bharat, IIT Madras) | MIT | On-device |
+| ASR + forced alignment | [IndicConformer](https://huggingface.co/ai4bharat/indicconformer_stt_mr_hybrid_ctc_rnnt_large) 120M per-language (AI4Bharat, IIT Madras) | MIT | On-device |
 | Runtime TTS | FastPitch + HiFi-GAN V1 (AI4Bharat) | MIT | On-device |
 | Lesson audio | [Indic Parler-TTS](https://huggingface.co/ai4bharat/indic-parler-tts) | MIT | Build time |
 | Translation *(optional)* | IndicTrans2 | MIT | On-device |
@@ -91,12 +91,32 @@ It is not the product. It is the load-bearing technical assumption underneath th
 | | Status |
 |---|---|
 | Repository, architecture, model selection | ✅ |
-| IndicConformer transcription (Python baseline) | 🔄 |
-| ONNX Runtime inference path | 🔄 |
+| IndicConformer transcription, Marathi | ✅ |
+| ONNX Runtime inference path, end to end | ✅ |
 | Android app, on-device inference | 🔄 |
 | Live microphone, airplane mode verified | 🔄 |
 
 *Updated during the build.*
+
+**On-device footprint: 137.8 MB** — `model.int8.onnx` (137.7 MB) plus the
+log-mel front-end graph `nemo80.onnx` (0.09 MB). Laptop CPU real-time factor
+is 0.15, measured on 14–22 second Marathi clips.
+
+The pipeline is two ONNX Runtime sessions and no hand-written signal processing:
+
+```
+PCM float32 @16kHz
+   -> nemo80.onnx      log-mel front-end   -> features [B,80,T]
+   -> model.int8.onnx  IndicConformer CTC  -> logprobs [B,T,257]
+   -> greedy CTC decode
+```
+
+This matters more than it looks. The usual failure mode when porting a NeMo ASR
+model to a phone is reimplementing its mel front-end by hand and getting one
+parameter wrong — slaney vs HTK mel scaling, say — which yields no error, just
+confident nonsense. Shipping the front-end *as an ONNX graph* means the phone
+runs bit-for-bit the same computation as the laptop reference. See
+[`docs/onnx-signature.md`](docs/onnx-signature.md).
 
 ### What is deliberately not here
 
