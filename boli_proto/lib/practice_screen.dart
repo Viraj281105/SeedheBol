@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'data.dart';
+import 'success_screen.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -23,7 +24,10 @@ class _PracticeScreenState extends State<PracticeScreen> {
   int _right = 0;
   bool? _correct;
   String _note = '';
+  bool _done = false;
   final List<String> _review = [];
+  final List<String> _learned = [];
+  final DateTime _startedAt = DateTime.now();
 
   Exercise get _ex => widget.situation.exercises[_i];
 
@@ -33,6 +37,9 @@ class _PracticeScreenState extends State<PracticeScreen> {
       _note = note;
       if (ok) {
         _right++;
+        if (_ex.marathi.isNotEmpty && !_learned.contains(_ex.marathi)) {
+          _learned.add(_ex.marathi);
+        }
       } else {
         _review.add(_ex.marathi);
       }
@@ -42,7 +49,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
 
   void _next() {
     if (_i + 1 >= widget.situation.exercises.length) {
-      Navigator.of(context).pop(_right / widget.situation.exercises.length);
+      setState(() => _done = true);
       return;
     }
     setState(() {
@@ -56,6 +63,18 @@ class _PracticeScreenState extends State<PracticeScreen> {
   Widget build(BuildContext context) {
     final total = widget.situation.exercises.length;
     final progress = (_i + (_correct != null ? 1 : 0)) / total;
+
+    if (_done) {
+      return SuccessScreen(
+        situation: widget.situation,
+        correct: _right,
+        total: total,
+        learned: _learned,
+        review: _review,
+        elapsed: DateTime.now().difference(_startedAt),
+        onDone: () => Navigator.of(context).pop(_right / total),
+      );
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -489,9 +508,19 @@ class _Build extends StatefulWidget {
   State<_Build> createState() => _BuildState();
 }
 
+/// Sentence construction, using Duolingo's word-bank-onto-ruled-lines layout.
+///
+/// This is a deliberate, scoped borrow. The pattern is a genuinely good
+/// solution to "assemble a sentence without a keyboard" — it is legible without
+/// instructions and it works for someone who cannot type Devanagari. What is
+/// NOT borrowed is the surrounding game: no hearts ride on this, and getting it
+/// wrong still just files the phrase for review.
 class _BuildState extends State<_Build> {
   final List<String> _picked = [];
   late final List<String> _pool = [...widget.ex.bank];
+
+  static const _rowH = 58.0;
+  static const _rows = 2;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -504,42 +533,76 @@ class _BuildState extends State<_Build> {
               color: Boli.peacock.withValues(alpha: .1),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Text(widget.ex.english,
-                textAlign: TextAlign.center,
-                style: Boli.body(17, weight: FontWeight.w700, color: Boli.peacock)),
-          ),
-          const SizedBox(height: 22),
-          Container(
-            constraints: const BoxConstraints(minHeight: 74),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              border: Border(bottom: BorderSide(color: Boli.sand, width: 2.5)),
-            ),
-            child: Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final w in _picked)
-                _Word(
-                    label: w,
-                    onTap: widget.locked
-                        ? null
-                        : () => setState(() {
-                              _picked.remove(w);
-                              _pool.add(w);
-                            })),
+            child: Row(children: [
+              Expanded(
+                child: Text(widget.ex.english,
+                    style: Boli.body(17, weight: FontWeight.w700, color: Boli.peacock)),
+              ),
+              GestureDetector(
+                onTap: () => PhraseAudio.play(widget.ex.marathi),
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Boli.peacock.withValues(alpha: .14),
+                    borderRadius: BorderRadius.circular(22),
+                  ),
+                  child: const Icon(Icons.volume_up_rounded, color: Boli.peacock, size: 22),
+                ),
+              ),
             ]),
           ),
-          const SizedBox(height: 24),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final w in _pool)
-              _Word(
+          const SizedBox(height: 26),
+
+          // ---- the ruled answer area ----------------------------------------
+          SizedBox(
+            height: _rowH * _rows,
+            child: Stack(
+              children: [
+                CustomPaint(
+                  size: Size(double.infinity, _rowH * _rows),
+                  painter: _RulePainter(rowHeight: _rowH, rows: _rows),
+                ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: _rowH - 46,
+                  children: [
+                    for (final w in _picked)
+                      _Tile(
+                        label: w,
+                        onTap: widget.locked
+                            ? null
+                            : () => setState(() {
+                                  _picked.remove(w);
+                                  _pool.add(w);
+                                }),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 30),
+
+          // ---- the word bank -------------------------------------------------
+          Wrap(
+            spacing: 8,
+            runSpacing: 10,
+            alignment: WrapAlignment.center,
+            children: [
+              for (final w in _pool)
+                _Tile(
                   label: w,
                   onTap: widget.locked
                       ? null
                       : () => setState(() {
                             _pool.remove(w);
                             _picked.add(w);
-                          })),
-          ]),
-          const SizedBox(height: 28),
+                          }),
+                ),
+            ],
+          ),
+          const SizedBox(height: 32),
           if (!widget.locked)
             BigButton(
               label: 'Check',
@@ -552,25 +615,70 @@ class _BuildState extends State<_Build> {
       );
 }
 
-class _Word extends StatelessWidget {
+/// The faint rules the assembled words sit on.
+class _RulePainter extends CustomPainter {
+  final double rowHeight;
+  final int rows;
+  _RulePainter({required this.rowHeight, required this.rows});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = Boli.sand
+      ..strokeWidth = 2;
+    for (int i = 0; i < rows; i++) {
+      final y = rowHeight * (i + 1) - 6;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RulePainter old) => false;
+}
+
+/// A word key. Solid bottom edge so it reads as physically pressable.
+class _Tile extends StatefulWidget {
   final String label;
   final VoidCallback? onTap;
-  const _Word({required this.label, this.onTap});
+  const _Tile({required this.label, this.onTap});
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 56,
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          decoration: BoxDecoration(
-            color: Boli.paper,
-            border: Border.all(color: Boli.sand, width: 2.5),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(label, style: Boli.head(23, weight: 600)),
+  State<_Tile> createState() => _TileState();
+}
+
+class _TileState extends State<_Tile> {
+  bool _down = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = widget.onTap != null;
+    return GestureDetector(
+      onTapDown: on ? (_) => setState(() => _down = true) : null,
+      onTapUp: on ? (_) => setState(() => _down = false) : null,
+      onTapCancel: on ? () => setState(() => _down = false) : null,
+      onTap: widget.onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 70),
+        transform: Matrix4.translationValues(0, _down ? 3 : 0, 0),
+        height: 46,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: Boli.paper,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Boli.sand, width: 2),
+          boxShadow: _down
+              ? null
+              : [const BoxShadow(color: Boli.sand, offset: Offset(0, 3), blurRadius: 0)],
         ),
-      );
+        // A Container with `alignment` set and no width expands to fill its
+        // constraints, which inside a Wrap means full width. Sizing to the word
+        // instead is what makes the tiles flow.
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [Text(widget.label, style: Boli.head(21, weight: 600))],
+        ),
+      ),
+    );
+  }
 }
 
 // ------------------------------------------------------------------ match ---

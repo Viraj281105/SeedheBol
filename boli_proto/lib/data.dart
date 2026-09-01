@@ -126,45 +126,72 @@ class Situation {
 }
 
 final situations = <Situation>[
+  // ---- the demo situation ------------------------------------------------
+  // Exercises every capability in one pass: listen, choose, match, speak, and
+  // build. Every spoken phrase is three or four words -- single words prove
+  // neither the synthesiser nor the recogniser.
   Situation(
     title: 'Starting your first day',
     native: 'पहिला दिवस',
     ctx: Ctx.work,
     phrases: 8,
-    readiness: 1,
+    readiness: .15,
+    urgent: true,
     exercises: const [
+      // 1. Hear it, then choose what it means.
       Exercise(
         kind: Kind.choice,
         prompt: 'What does this mean?',
-        marathi: 'नमस्कार',
-        roman: 'namaskār',
-        options: ['Hello', 'Goodbye', 'Thank you', 'Sorry'],
-        answer: 0,
+        marathi: 'मला मदत हवी आहे',
+        roman: 'malā madat havī āhe',
+        options: ['I am going home', 'I need help', 'I am very tired', 'I do not want this'],
+        answer: 1,
       ),
+      // 2. Say it back. Four words.
       Exercise(
         kind: Kind.speak,
         prompt: 'Say it out loud',
-        marathi: 'नमस्कार',
-        roman: 'namaskār',
-        english: 'Hello',
+        marathi: 'मला मदत हवी आहे',
+        roman: 'malā madat havī āhe',
+        english: 'I need help',
       ),
+      // 3. The words you will need on site.
       Exercise(
         kind: Kind.match,
         prompt: 'Match the pairs',
         pairs: [
-          ['नमस्कार', 'Hello'],
-          ['धन्यवाद', 'Thank you'],
-          ['होय', 'Yes'],
-          ['नाही', 'No'],
+          ['पाणी', 'Water'],
+          ['काम', 'Work'],
+          ['पगार', 'Wages'],
+          ['सुट्टी', 'Holiday'],
         ],
       ),
+      // 4. Three words.
       Exercise(
         kind: Kind.speak,
         prompt: 'Say it out loud',
-        marathi: 'धन्यवाद',
-        roman: 'dhanyavād',
-        english: 'Thank you',
+        marathi: 'पाणी कुठे मिळेल',
+        roman: 'pāṇī kuṭhe miḷel',
+        english: 'Where can I get water',
       ),
+      // 5. Listen, then choose.
+      Exercise(
+        kind: Kind.choice,
+        prompt: 'What does this mean?',
+        marathi: 'पगार कधी मिळेल',
+        roman: 'pagār kadhī miḷel',
+        options: ['How much is the pay?', 'Where is the office?', 'When will I be paid?', 'Who is the supervisor?'],
+        answer: 2,
+      ),
+      // 6. Three words.
+      Exercise(
+        kind: Kind.speak,
+        prompt: 'Say it out loud',
+        marathi: 'कृपया हळू बोला',
+        roman: 'kṛpayā haḷū bolā',
+        english: 'Please speak slowly',
+      ),
+      // 7. Four words. Sentence building closes the lesson.
       Exercise(
         kind: Kind.build,
         prompt: 'Build the sentence',
