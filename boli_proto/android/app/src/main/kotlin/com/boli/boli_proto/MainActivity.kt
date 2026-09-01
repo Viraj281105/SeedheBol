@@ -37,7 +37,10 @@ class MainActivity : FlutterActivity() {
                             requestMicPermission()
                             result.error("NO_PERMISSION", "Microphone permission requested — tap again", null)
                         } else {
-                            off(result) { asr.transcribe(MicRecorder.record()) }
+                            // Speaking exercises set their own window; still one
+                            // method, still returning String.
+                            val seconds = (call.argument<Double>("seconds") ?: 4.0).toFloat()
+                            off(result) { asr.transcribe(MicRecorder.record(seconds)) }
                         }
                     }
 

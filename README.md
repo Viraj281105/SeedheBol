@@ -135,9 +135,25 @@ only — leaving the convolution modules in fp32 — fixed it, and turned out to
 both faster and more accurate than the original.
 [`docs/device-notes.md`](docs/device-notes.md) records the details.
 
-### What is deliberately not here
+### The demo shell
 
-No UI framework, no lessons, no gamification, no TTS, no pronunciation scoring. Those are the product. This repo tests whether the product is possible.
+Once the claim was proven, the prototype was given a real product surface so the
+capability can be shown rather than described: a lesson map, units, XP, streak,
+hearts, and four exercise types — multiple choice, word matching, sentence
+building, and **speaking**.
+
+The speaking exercise is the point. It calls the same `transcribeMic` path
+verified in T4, scores the result against the target phrase with a
+Devanagari-aware edit-distance ratio, and shows the learner exactly what the
+device heard. A 4-second window returns in ~205 ms.
+
+Curriculum content is sample data, and progress is held in memory only — this is
+a demo shell, not a product. The vocabulary is deliberately workplace Marathi
+(wages, holidays, asking for help and water) rather than tourist phrases, per
+the thesis above.
+
+Still not here: TTS, translation, and pronunciation scoring at the phoneme level.
+Those need forced alignment over the CTC posteriorgram, which is the real build.
 
 ---
 
