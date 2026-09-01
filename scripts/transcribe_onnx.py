@@ -5,12 +5,15 @@ has a one-to-one counterpart in OnnxAsr.kt, deliberately:
 
     PCM float32 [-1,1]
         -> nemo80.onnx        (waveforms, waveforms_lens) -> (features, features_lens)
-        -> model.int8.onnx    (audio_signal, length)      -> logprobs [B,T,257]
+        -> model.arm64.onnx   (audio_signal, length)      -> logprobs [B,T,257]
         -> greedy CTC decode  (argmax, collapse repeats, drop <blk>)
 
 The log-mel front-end is an ONNX graph shipped by onnx-asr, not hand-written DSP.
 That is the whole point: CLAUDE.md Trap 1 (mel parameter mismatch) cannot occur
 if Android runs the identical graph these reference values came from.
+
+The acoustic model is model.arm64.onnx, not the upstream model.int8.onnx --
+see docs/device-notes.md for why (ConvInteger has no arm64 kernel).
 """
 import json
 import sys
@@ -44,7 +47,7 @@ features, features_lens = pre.run(
 print(f"features {features.shape} {features.dtype}  lens={features_lens.tolist()}")
 
 # --- 3. acoustic model ------------------------------------------------------
-enc = rt.InferenceSession(str(MDIR / "model.int8.onnx"), providers=["CPUExecutionProvider"])
+enc = rt.InferenceSession(str(MDIR / "model.arm64.onnx"), providers=["CPUExecutionProvider"])
 (logprobs,) = enc.run(["logprobs"], {"audio_signal": features, "length": features_lens})
 print(f"logprobs {logprobs.shape} {logprobs.dtype}")
 

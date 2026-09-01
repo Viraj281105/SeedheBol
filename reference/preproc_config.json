@@ -1,0 +1,22 @@
+{
+  "_source": "onnx-asr preprocessors/nemo.py \u2014 values read from source, not guessed",
+  "_graph": "nemo80.onnx (ai.onnx opset 17); nemo80_conv.onnx is the STFT-free fallback",
+  "sample_rate": 16000,
+  "n_fft": 512,
+  "win_length": 400,
+  "hop_length": 160,
+  "n_mels": 80,
+  "window": "hann_symmetric_400_zero_padded_to_512",
+  "preemphasis": 0.97,
+  "center_pad": "reflect-free zero pad of n_fft//2 each side",
+  "mel_scale": "slaney",
+  "mel_norm": "slaney",
+  "log": "natural log of (mel + 2**-24)",
+  "log_zero_guard_value": 5.960464477539063e-08,
+  "normalize": "per_feature (per mel bin, over valid frames), ddof=1, eps=1e-5",
+  "dither": 0.0,
+  "features_lens": "waveforms_lens // hop_length",
+  "subsampling_factor": 4,
+  "vocab_size": 257,
+  "blank_id": 256
+}

@@ -29,7 +29,7 @@ class OnnxAsr(private val context: Context) {
         env.createSession(resolveAsset("nemo80.onnx").absolutePath, cpuOptions())
     }
     private val model: OrtSession by lazy {
-        env.createSession(resolveAsset("model.int8.onnx").absolutePath, cpuOptions())
+        env.createSession(resolveAsset(MODEL).absolutePath, cpuOptions())
     }
 
     /** id -> token. Blank is the highest id, written as "<blk>" in vocab.txt. */
@@ -54,11 +54,13 @@ class OnnxAsr(private val context: Context) {
      * ONNX Runtime cannot mmap a file inside an APK (Trap 5), so assets are
      * copied to filesDir once and opened from there.
      *
-     * If the same filename exists under /sdcard/Download/boli/ it wins, which
-     * lets `adb push` swap the model without a reinstall (Trap 7).
+     * If the same filename exists in the app's external files dir it wins, which
+     * lets `adb push` swap the model without a reinstall (Trap 7). That directory
+     * is readable without any storage permission under scoped storage:
+     *   adb push model.arm64.onnx /sdcard/Android/data/com.boli.boli_proto/files/
      */
     private fun resolveAsset(name: String): File {
-        val pushed = File("/sdcard/Download/boli/$name")
+        val pushed = File(context.getExternalFilesDir(null), name)
         if (pushed.exists()) {
             Log.i(TAG, "using pushed $name (${pushed.length()} bytes)")
             return pushed
@@ -137,5 +139,13 @@ class OnnxAsr(private val context: Context) {
     companion object {
         private const val TAG = "BoliAsr"
         private const val SUBSAMPLING = 4L // models/mr/config.json
+
+        /**
+         * MatMul-only int8 (see scripts/quantize_arm.py). The upstream
+         * model.int8.onnx also quantizes Conv, and ONNX Runtime's arm64 CPU
+         * provider has no ConvInteger kernel — it loads on x86 and fails on the
+         * phone, which is the sort of thing only a device catches.
+         */
+        private const val MODEL = "model.arm64.onnx"
     }
 }
