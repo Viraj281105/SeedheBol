@@ -99,7 +99,7 @@ class ProgressScreen extends StatelessWidget {
               children: [
                 for (int i = 0; i < 5; i++) ...[
                   if (i > 0) Divider(height: 1, color: Boli.sand, thickness: 1.5),
-                  _LangRow(lang: languages[i]),
+                  _LangRow(lang: targetLanguages[i]),
                 ],
               ],
             ),

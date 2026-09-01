@@ -17,6 +17,7 @@ import kotlin.concurrent.thread
 class MainActivity : FlutterActivity() {
 
     private val asr by lazy { OnnxAsr(applicationContext) }
+    private val tts by lazy { OnnxTts(applicationContext) }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -44,6 +45,14 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
+                    // Plays the target phrase. Speaking exercises call this
+                    // before asking the user to repeat -- nobody can pronounce
+                    // a word they have never heard.
+                    "speak" -> {
+                        val text = call.argument<String>("text").orEmpty()
+                        off(result) { tts.speak(text) }
+                    }
+
                     else -> result.notImplemented()
                 }
             }
@@ -51,6 +60,7 @@ class MainActivity : FlutterActivity() {
         // Unpacking 137MB and building both sessions takes a moment; do it now
         // so the first button press measures inference, not cold start.
         thread { runCatching { asr.warmUp() }.onFailure { Log.e(TAG, "warmUp failed", it) } }
+        thread { runCatching { tts.warmUp() }.onFailure { Log.e(TAG, "tts warmUp failed", it) } }
     }
 
     private fun hasMicPermission() =

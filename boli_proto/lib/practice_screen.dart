@@ -148,9 +148,64 @@ class _Instruction extends StatelessWidget {
       );
 }
 
-class _Phrase extends StatelessWidget {
+/// Plays a phrase through the on-device synthesiser. Shared by every exercise
+/// so there is exactly one place that talks to the "speak" channel method.
+class PhraseAudio {
+  static const _channel = MethodChannel('boli/asr');
+  static Future<void> play(String text) async {
+    try {
+      await _channel.invokeMethod('speak', {'text': text});
+    } on PlatformException {
+      // A missing phrase is not worth interrupting a lesson for.
+    }
+  }
+}
+
+class _Phrase extends StatefulWidget {
   final String marathi, roman, english;
-  const _Phrase({required this.marathi, this.roman = '', this.english = ''});
+
+  /// Speak the phrase as soon as it appears. Asking someone to pronounce a
+  /// word they have never heard is the bug this exists to fix.
+  final bool autoPlay;
+  const _Phrase({
+    required this.marathi,
+    this.roman = '',
+    this.english = '',
+    this.autoPlay = false,
+  });
+
+  @override
+  State<_Phrase> createState() => _PhraseState();
+}
+
+class _PhraseState extends State<_Phrase> {
+  bool _playing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoPlay) {
+      // Let the entry transition settle first, otherwise the audio starts
+      // under a screen that is still sliding in.
+      Future.delayed(const Duration(milliseconds: 420), () {
+        if (mounted) _speak();
+      });
+    }
+  }
+
+  Future<void> _speak() async {
+    setState(() => _playing = true);
+    await PhraseAudio.play(widget.marathi);
+    if (!mounted) return;
+    // No completion callback from AudioTrack here; the indicator is a cue that
+    // the tap registered, not a claim about playback position.
+    await Future.delayed(const Duration(milliseconds: 900));
+    if (mounted) setState(() => _playing = false);
+  }
+
+  String get marathi => widget.marathi;
+  String get roman => widget.roman;
+  String get english => widget.english;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -184,6 +239,26 @@ class _Phrase extends StatelessWidget {
                           style: Boli.body(15, weight: FontWeight.w700, color: Boli.peacock)),
                     ),
                   ],
+                  const SizedBox(height: 16),
+                  GestureDetector(
+                    onTap: _speak,
+                    child: Container(
+                      height: 52,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: Boli.peacock.withValues(alpha: _playing ? .22 : .1),
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(_playing ? Icons.volume_up_rounded : Icons.play_arrow_rounded,
+                            color: Boli.peacock, size: 24),
+                        const SizedBox(width: 8),
+                        Text(_playing ? 'Playing' : 'Listen',
+                            style: Boli.body(15.5,
+                                weight: FontWeight.w800, color: Boli.peacock)),
+                      ]),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -334,7 +409,12 @@ class _SpeakState extends State<_Speak> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _Instruction(widget.ex.prompt),
-          _Phrase(marathi: widget.ex.marathi, roman: widget.ex.roman, english: widget.ex.english),
+          _Phrase(
+            marathi: widget.ex.marathi,
+            roman: widget.ex.roman,
+            english: widget.ex.english,
+            autoPlay: true,
+          ),
           const SizedBox(height: 20),
           Center(child: MicButton(busy: _busy, onTap: (_busy || widget.locked) ? null : _listen)),
           Center(

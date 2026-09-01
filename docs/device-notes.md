@@ -47,3 +47,25 @@ ONNX Runtime cannot memory-map a file inside an APK. Assets are copied to
 
 `OnnxAsr.resolveAsset` prefers `/sdcard/Download/boli/<name>` when present, so
 a model can be swapped with `adb push` without reinstalling the APK.
+
+## Zero padding degrades the conformer, it does not help it
+
+While verifying TTS by feeding synthesised audio back through the ASR, the
+round trip dropped leading words. The obvious fix — pad the utterance with
+silence so the recogniser has a run-up — **halved** exact matches, 12/24 to
+6/24.
+
+The cause is the preprocessor's `per_feature` normalisation. It computes mean
+and variance per mel bin across time, and digital silence sits on the
+`log(x + 2**-24)` floor, so padding drags every bin's mean down and degrades
+the whole utterance rather than just the padding.
+
+Worth knowing before anyone reaches for silence padding as a VAD substitute.
+
+## TTS and ASR sample rates never meet
+
+Piper runs at 22050 Hz and hands PCM straight to `AudioTrack`. The recogniser
+runs at 16000 Hz from `AudioRecord`. `OnnxTts.kt` contains no resampling of any
+kind, and shares no code with `MicRecorder`/the mel front-end. The only
+resampling in the repository lives in `scripts/tts_prepare.py`, where it exists
+solely to drive the offline round-trip check.

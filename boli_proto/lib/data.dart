@@ -11,8 +11,18 @@ class Lang {
   final String code, native, english;
   final bool installed;
   final int mb;
-  const Lang(this.code, this.native, this.english, {this.installed = false, this.mb = 187});
+
+  /// Offered as a language you already speak, but never as one you are
+  /// learning. The product translates Indian language to Indian language with
+  /// no English pivot; English is an explanation language, not a target.
+  final bool l1Only;
+
+  const Lang(this.code, this.native, this.english,
+      {this.installed = false, this.mb = 187, this.l1Only = false});
 }
+
+/// Languages offered as L2 — everything you can actually learn here.
+List<Lang> get targetLanguages => languages.where((l) => !l.l1Only).toList();
 
 /// The 22 scheduled languages are the destination. These are the ones the
 /// prototype surfaces; only Marathi is actually resident on device.
@@ -29,6 +39,9 @@ const languages = <Lang>[
   Lang('or', 'ଓଡ଼ିଆ', 'Odia'),
   Lang('as', 'অসমীয়া', 'Assamese'),
   Lang('ur', 'اردو', 'Urdu'),
+  // Last, deliberately: the point of the product is Indian languages, and a
+  // list headed by English would say the opposite.
+  Lang('en', 'English', 'English', installed: true, mb: 0, l1Only: true),
 ];
 
 class Job {

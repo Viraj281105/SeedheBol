@@ -26,7 +26,8 @@ class _OnboardingState extends State<Onboarding> {
     } else {
       Navigator.of(context).pushReplacement(PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 500),
-        pageBuilder: (_, __, ___) => Shell(l1: languages[_l1], l2: languages[_l2], job: jobs[_job]),
+        pageBuilder: (_, __, ___) =>
+            Shell(l1: languages[_l1], l2: targetLanguages[_l2], job: jobs[_job]),
         transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
       ));
     }
@@ -97,6 +98,7 @@ class _OnboardingState extends State<Onboarding> {
                       selected: _l2,
                       onSelect: (i) => setState(() => _l2 = i),
                       showInstall: true,
+                      options: targetLanguages,
                     ),
                   _ => _JobStep(
                       key: const ValueKey(2),
@@ -110,7 +112,7 @@ class _OnboardingState extends State<Onboarding> {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
               child: Column(
                 children: [
-                  if (_step == 1 && !languages[_l2].installed)
+                  if (_step == 1 && !targetLanguages[_l2].installed)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Row(children: [
@@ -118,7 +120,8 @@ class _OnboardingState extends State<Onboarding> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            '${languages[_l2].english} needs a ${languages[_l2].mb} MB download. Marathi is already on this phone.',
+                            '${targetLanguages[_l2].english} needs a ${targetLanguages[_l2].mb} MB download. '
+                            'Marathi is already on this phone.',
                             style: Boli.body(13.5, color: Boli.inkSoft),
                           ),
                         ),
@@ -144,6 +147,7 @@ class _LangStep extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onSelect;
   final bool showInstall;
+  final List<Lang>? options;
   const _LangStep({
     super.key,
     required this.title,
@@ -151,6 +155,7 @@ class _LangStep extends StatelessWidget {
     required this.selected,
     required this.onSelect,
     required this.showInstall,
+    this.options,
   });
 
   @override
@@ -178,9 +183,9 @@ class _LangStep extends StatelessWidget {
                 crossAxisSpacing: 10,
                 mainAxisSpacing: 10,
               ),
-              itemCount: languages.length,
+              itemCount: (options ?? languages).length,
               itemBuilder: (_, i) {
-                final l = languages[i];
+                final l = (options ?? languages)[i];
                 final on = i == selected;
                 return GestureDetector(
                   onTap: () => onSelect(i),
@@ -201,7 +206,7 @@ class _LangStep extends StatelessWidget {
                         const SizedBox(height: 1),
                         Row(children: [
                           Flexible(
-                            child: Text(l.english,
+                            child: Text(l.native == l.english ? 'You already read this' : l.english,
                                 overflow: TextOverflow.ellipsis,
                                 style: Boli.body(13,
                                     color: on ? Boli.cream.withValues(alpha: .75) : Boli.inkSoft)),
