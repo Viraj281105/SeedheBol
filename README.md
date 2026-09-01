@@ -93,21 +93,31 @@ It is not the product. It is the load-bearing technical assumption underneath th
 | Repository, architecture, model selection | ✅ |
 | IndicConformer transcription, Marathi | ✅ |
 | ONNX Runtime inference path, end to end | ✅ |
-| Android app, on-device inference | 🔄 |
-| Live microphone, airplane mode verified | 🔄 |
+| Android app, on-device inference | ✅ |
+| Live microphone, airplane mode verified | ✅ |
 
-*Updated during the build.*
+**The claim is proven.** Measured on a Pixel 8 (Tensor G3, 8 GB), CPU execution
+provider only — no NPU, no NNAPI:
 
-**On-device footprint: 137.8 MB** — `model.int8.onnx` (137.7 MB) plus the
-log-mel front-end graph `nemo80.onnx` (0.09 MB). Laptop CPU real-time factor
-is 0.15, measured on 14–22 second Marathi clips.
+| | |
+|---|---|
+| 16.32 s Marathi WAV | **1061 ms**, real-time factor **0.065** |
+| 6 s live microphone capture | **304 ms**, real-time factor **0.051** |
+| Same, in airplane mode after a cold start | **948 ms**, RTF **0.058** |
+| On-device transcript vs laptop reference | character-identical |
+| On-device footprint | **186.7 MB** |
+
+Fifteen times faster than real time, on the CPU, with the radios off.
+
+The footprint is `model.arm64.onnx` (186.6 MB) plus the log-mel front-end graph
+`nemo80.onnx` (0.09 MB) and a 2.7 KB vocabulary.
 
 The pipeline is two ONNX Runtime sessions and no hand-written signal processing:
 
 ```
 PCM float32 @16kHz
-   -> nemo80.onnx      log-mel front-end   -> features [B,80,T]
-   -> model.int8.onnx  IndicConformer CTC  -> logprobs [B,T,257]
+   -> nemo80.onnx       log-mel front-end   -> features [B,80,T]
+   -> model.arm64.onnx  IndicConformer CTC  -> logprobs [B,T,257]
    -> greedy CTC decode
 ```
 
@@ -117,6 +127,13 @@ parameter wrong — slaney vs HTK mel scaling, say — which yields no error, ju
 confident nonsense. Shipping the front-end *as an ONNX graph* means the phone
 runs bit-for-bit the same computation as the laptop reference. See
 [`docs/onnx-signature.md`](docs/onnx-signature.md).
+
+What did bite, and only on the device, was quantization coverage: ONNX Runtime
+has no `ConvInteger` kernel for arm64, so the published int8 model builds and
+loads on a laptop and cannot open a session on the phone. Re-quantizing MatMul
+only — leaving the convolution modules in fp32 — fixed it, and turned out to be
+both faster and more accurate than the original.
+[`docs/device-notes.md`](docs/device-notes.md) records the details.
 
 ### What is deliberately not here
 
