@@ -1,4 +1,4 @@
-# Boli
+# SeedheBol
 
 **Functional Indian languages, offline, for people who move for work.**
 
