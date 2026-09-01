@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Models — too large for git, fetched by scripts/fetch_model.py
+models/
+*.onnx
+*.onnx_data
+
+# Flutter / Android
+boli_proto/build/
+boli_proto/.dart_tool/
+boli_proto/android/.gradle/
+boli_proto/android/local.properties
+*.apk
+
+# OS
+Thumbs.db
+.DS_Store
