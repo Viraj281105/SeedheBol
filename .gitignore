@@ -18,3 +18,7 @@ boli_proto/android/local.properties
 # OS
 Thumbs.db
 .DS_Store
+
+# Android assets are copied in by the build (model, vocab, front-end graph,
+# sample.wav). Sources of truth live in models/ and assets/.
+boli_proto/android/app/src/main/assets/
