@@ -150,8 +150,7 @@ class _Prompt extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 18),
-        child: Text(text,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Desi.indigo)),
+        child: Text(text, style: Desi.displayStyle(size: 24, weight: 700)),
       );
 }
 
@@ -173,8 +172,7 @@ class _PhraseCard extends StatelessWidget {
           children: [
             Text(marathi,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 30, fontWeight: FontWeight.w700, color: Desi.indigo, height: 1.35)),
+                style: Desi.displayStyle(size: 36, weight: 600, height: 1.3)),
             if (roman.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(roman,
@@ -471,9 +469,7 @@ class _SpeakExerciseState extends State<_SpeakExercise> with SingleTickerProvide
                           color: Desi.ink.withValues(alpha: .5))),
                 ]),
                 const SizedBox(height: 7),
-                Text(_heard,
-                    style: const TextStyle(
-                        fontSize: 19, fontWeight: FontWeight.w600, color: Desi.indigo)),
+                Text(_heard, style: Desi.displayStyle(size: 23, weight: 600)),
               ],
             ),
           ),
@@ -587,8 +583,7 @@ class _Tile extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: Desi.key(Colors.white, edge: Desi.sand, radius: 14),
-          child: Text(label,
-              style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600, color: Desi.indigo)),
+          child: Text(label, style: Desi.displayStyle(size: 22, weight: 600)),
         ),
       );
 }
@@ -782,7 +777,7 @@ class _FeedbackBar extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(correct ? 'शाब्बास!' : 'Not quite',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: c)),
+                          style: Desi.displayStyle(size: 25, weight: 800, color: c)),
                       if (note.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),

@@ -98,9 +98,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                 const SizedBox(height: 26),
                 FadeTransition(
                   opacity: text,
-                  child: const Text('बोली',
-                      style: TextStyle(
-                          fontSize: 46, fontWeight: FontWeight.w800, color: Colors.white, height: 1)),
+                  child: Text('बोली',
+                      style: Desi.displayStyle(
+                          size: 52, weight: 800, color: Colors.white, height: 1.1)),
                 ),
                 const SizedBox(height: 10),
                 FadeTransition(

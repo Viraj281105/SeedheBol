@@ -1,3 +1,5 @@
+import 'dart:ui' show FontVariation;
+
 import 'package:flutter/material.dart';
 
 /// India-inspired palette: marigold and saffron against deep indigo, with
@@ -36,6 +38,25 @@ class Desi {
     colors: [Color(0xFF17A2A0), peacock],
   );
 
+  static const ui = 'Mukta';
+  static const display = 'Baloo2';
+
+  /// Baloo 2 ships as a variable font, so weight comes from the `wght` axis
+  /// rather than from a static file per weight.
+  static TextStyle displayStyle({
+    required double size,
+    double weight = 700,
+    Color color = indigo,
+    double height = 1.2,
+  }) =>
+      TextStyle(
+        fontFamily: display,
+        fontSize: size,
+        color: color,
+        height: height,
+        fontVariations: [FontVariation('wght', weight)],
+      );
+
   /// Chunky, slightly playful, and legible in Devanagari at small sizes.
   static ThemeData get theme {
     final base = ThemeData(useMaterial3: true, brightness: Brightness.light);
@@ -47,7 +68,11 @@ class Desi {
         surface: cream,
         error: rose,
       ),
-      textTheme: base.textTheme.apply(bodyColor: ink, displayColor: ink),
+      textTheme: base.textTheme.apply(
+        fontFamily: ui,
+        bodyColor: ink,
+        displayColor: ink,
+      ),
       splashFactory: InkSparkle.splashFactory,
     );
   }

@@ -89,9 +89,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('बोली',
-                                  style: TextStyle(
-                                      fontSize: 26, fontWeight: FontWeight.w800, color: Desi.indigo, height: 1.1)),
+                              Text('बोली',
+                                  style: Desi.displayStyle(size: 30, weight: 800, height: 1.05)),
                               Text('Marathi · works offline',
                                   style: TextStyle(
                                       fontSize: 12.5,
@@ -186,8 +185,8 @@ class _UnitBanner extends StatelessWidget {
                             color: Colors.white.withValues(alpha: .82))),
                     const SizedBox(height: 3),
                     Text(unit.title,
-                        style: const TextStyle(
-                            fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, height: 1.2)),
+                        style: Desi.displayStyle(
+                            size: 26, weight: 700, color: Colors.white, height: 1.15)),
                   ],
                 ),
               ),
