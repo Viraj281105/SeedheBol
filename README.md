@@ -137,6 +137,22 @@ both faster and more accurate than the original.
 
 ### The demo shell
 
+The interface is built around **situations and readiness**, not lessons and
+points. There are no hearts, no lives, no XP and no locked content — those are
+retention mechanics for a hobbyist with unlimited time, and they actively
+punish someone counting down three weeks to a supervisor's deadline. Progress
+is stated as *how much of your work you can now handle unaided*, every
+situation is reachable in any order, and a wrong answer schedules a review
+rather than ending the session.
+
+Interface constraints follow from the user, not from taste: 64dp minimum touch
+targets for hands damaged by manual labour, high contrast for reading in direct
+sunlight, and cultural reference carried by colour and structural handloom
+borders rather than floating ornament — decoration reads as frivolous on a tool
+someone's wages depend on.
+
+### What the shell covers
+
 Once the claim was proven, the prototype was given a real product surface so the
 capability can be shown rather than described: a lesson map, units, XP, streak,
 hearts, and four exercise types — multiple choice, word matching, sentence

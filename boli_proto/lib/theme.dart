@@ -2,53 +2,54 @@ import 'dart:ui' show FontVariation;
 
 import 'package:flutter/material.dart';
 
-/// India-inspired palette: marigold and saffron against deep indigo, with
-/// terracotta and peacock accents. Drawn from festival colour rather than
-/// flag colour, which reads as decoration instead of nationalism.
+/// Design system for Boli.
 ///
-/// No `google_fonts` dependency anywhere in this app: that package fetches
-/// fonts over the network at runtime, which would quietly break the one claim
-/// this project exists to make. System fonts render Devanagari correctly.
-class Desi {
-  static const marigold = Color(0xFFF6A623);
-  static const saffron = Color(0xFFEF7215);
-  static const terracotta = Color(0xFFC1502E);
-  static const peacock = Color(0xFF0E7C7B);
-  static const rose = Color(0xFFD81E5B);
-  static const indigo = Color(0xFF221B45);
-  static const indigoSoft = Color(0xFF3A3168);
-  static const cream = Color(0xFFFFF7E9);
-  static const sand = Color(0xFFF3E4C8);
-  static const leaf = Color(0xFF2E9E5B);
-  static const ink = Color(0xFF2A2340);
+/// Three constraints drive every decision here, and none of them are aesthetic:
+///
+///   1. The user is on a deadline. Nothing may punish or gate. No lives, no
+///      locks, no "come back tomorrow". Progress is *coverage of situations you
+///      will face*, never points.
+///   2. The user may be reading in direct sunlight. Contrast is high, weights
+///      are heavy, and nothing meaningful is rendered in low-opacity grey.
+///   3. The user may have damaged fingertips from manual labour. Minimum touch
+///      target is 64dp, not Material's 48dp.
+///
+/// The Indian visual language is carried by colour and by *structural* handloom
+/// borders, not by floating ornament. Decoration on a tool that someone's wages
+/// depend on reads as frivolous.
+class Boli {
+  // Ground and ink — warm, high contrast.
+  static const cream = Color(0xFFFCF6EA);
+  static const paper = Color(0xFFFFFFFF);
+  static const sand = Color(0xFFEADCC2);
+  static const ink = Color(0xFF1A1633);
+  static const inkSoft = Color(0xFF4A4266);
 
-  static const gold = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [marigold, saffron],
-  );
-  static const dusk = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [indigoSoft, indigo],
-  );
-  static const teal = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [Color(0xFF17A2A0), peacock],
-  );
+  // Accents, drawn from textile dye rather than flag colour.
+  static const marigold = Color(0xFFF2A013);
+  static const turmeric = Color(0xFFE8820C);
+  static const terracotta = Color(0xFFBE4A28);
+  static const peacock = Color(0xFF0C6E70);
+  static const indigo = Color(0xFF2B2560);
+  static const madder = Color(0xFFA8203C);
+  static const leaf = Color(0xFF2C7A4B);
+
+  /// Readiness is a three-stage scale, never pass/fail. A situation you have
+  /// not practised is *not yet covered*, which is a neutral fact, not a failure.
+  static const notStarted = sand;
+  static const practising = marigold;
+  static const ready = peacock;
+
+  static Color forReadiness(double r) {
+    if (r <= 0) return notStarted;
+    if (r < .8) return practising;
+    return ready;
+  }
 
   static const ui = 'Mukta';
   static const display = 'Baloo2';
 
-  /// Baloo 2 ships as a variable font, so weight comes from the `wght` axis
-  /// rather than from a static file per weight.
-  static TextStyle displayStyle({
-    required double size,
-    double weight = 700,
-    Color color = indigo,
-    double height = 1.2,
-  }) =>
+  static TextStyle head(double size, {double weight = 700, Color color = ink, double height = 1.15}) =>
       TextStyle(
         fontFamily: display,
         fontSize: size,
@@ -57,41 +58,100 @@ class Desi {
         fontVariations: [FontVariation('wght', weight)],
       );
 
-  /// Chunky, slightly playful, and legible in Devanagari at small sizes.
+  static TextStyle body(double size,
+          {FontWeight weight = FontWeight.w500, Color color = ink, double height = 1.4}) =>
+      TextStyle(fontFamily: ui, fontSize: size, color: color, height: height, fontWeight: weight);
+
+  /// Small caps label. Used for section headers and metadata.
+  static TextStyle label({Color color = inkSoft, double size = 12}) => TextStyle(
+        fontFamily: ui,
+        fontSize: size,
+        color: color,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.3,
+      );
+
+  static const double tap = 64; // minimum touch target, per constraint 3
+
   static ThemeData get theme {
     final base = ThemeData(useMaterial3: true, brightness: Brightness.light);
     return base.copyWith(
       scaffoldBackgroundColor: cream,
       colorScheme: base.colorScheme.copyWith(
-        primary: saffron,
+        primary: marigold,
         secondary: peacock,
         surface: cream,
-        error: rose,
+        error: madder,
       ),
-      textTheme: base.textTheme.apply(
-        fontFamily: ui,
-        bodyColor: ink,
-        displayColor: ink,
-      ),
-      splashFactory: InkSparkle.splashFactory,
+      textTheme: base.textTheme.apply(fontFamily: ui, bodyColor: ink, displayColor: ink),
     );
   }
 
-  /// The soft drop used on every raised surface. Warm, never grey.
-  static List<BoxShadow> lift({double y = 6, double blur = 18, double o = .16}) => [
-        BoxShadow(color: indigo.withValues(alpha: o), offset: Offset(0, y), blurRadius: blur),
+  static List<BoxShadow> lift({double y = 3, double blur = 10, double o = .10}) => [
+        BoxShadow(color: ink.withValues(alpha: o), offset: Offset(0, y), blurRadius: blur),
       ];
 
-  /// Duolingo's signature trick: a solid darker edge under a button so it
-  /// reads as a physical key that depresses when tapped.
-  static BoxDecoration key(Color face, {Color? edge, double radius = 18}) => BoxDecoration(
-        color: face,
+  static BoxDecoration card({Color? fill, Color? border, double radius = 18}) => BoxDecoration(
+        color: fill ?? paper,
         borderRadius: BorderRadius.circular(radius),
-        border: Border(bottom: BorderSide(color: edge ?? _darken(face), width: 4)),
+        border: Border.all(color: border ?? sand, width: 2),
       );
+}
 
-  static Color _darken(Color c, [double amount = .18]) {
-    final h = HSLColor.fromColor(c);
-    return h.withLightness((h.lightness - amount).clamp(0.0, 1.0)).toColor();
+/// A handloom border stripe — the repeating stamp found on the edge of a woven
+/// saree or a block-printed cloth. It is used *structurally*, as a section
+/// divider or a card edge, so the cultural reference sits in the architecture
+/// of the page rather than floating behind the content as decoration.
+class HandloomBorder extends StatelessWidget {
+  final Color color;
+  final double height;
+  final bool dense;
+  const HandloomBorder({super.key, this.color = Boli.terracotta, this.height = 10, this.dense = false});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: height,
+        width: double.infinity,
+        child: CustomPaint(painter: _HandloomPainter(color, dense)),
+      );
+}
+
+class _HandloomPainter extends CustomPainter {
+  final Color color;
+  final bool dense;
+  _HandloomPainter(this.color, this.dense);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final unit = dense ? 12.0 : 18.0;
+    final p = Paint()..color = color;
+    final line = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4;
+
+    // Two rules with a row of stamps between them.
+    canvas.drawLine(Offset(0, .8), Offset(size.width, .8), line);
+    canvas.drawLine(Offset(0, size.height - .8), Offset(size.width, size.height - .8), line);
+
+    final mid = size.height / 2;
+    final r = (size.height - 5) / 2;
+    for (double x = unit / 2; x < size.width; x += unit) {
+      // Alternating diamond / dot, the simplest block-print rhythm.
+      if (((x - unit / 2) / unit).round().isEven) {
+        final path = Path()
+          ..moveTo(x, mid - r)
+          ..lineTo(x + r, mid)
+          ..lineTo(x, mid + r)
+          ..lineTo(x - r, mid)
+          ..close();
+        canvas.drawPath(path, p);
+      } else {
+        canvas.drawCircle(Offset(x, mid), r * .48, p);
+      }
+    }
   }
+
+  @override
+  bool shouldRepaint(_HandloomPainter old) => old.color != color || old.dense != dense;
 }

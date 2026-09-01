@@ -1,0 +1,679 @@
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'data.dart';
+import 'theme.dart';
+import 'widgets.dart';
+
+/// The practice runner.
+///
+/// No hearts, no lives, no fail state. A wrong answer schedules the phrase for
+/// review and moves on; it never ends the session or blocks progress. Someone
+/// with three weeks cannot be sent back to the start of a unit.
+class PracticeScreen extends StatefulWidget {
+  final Situation situation;
+  const PracticeScreen({super.key, required this.situation});
+
+  @override
+  State<PracticeScreen> createState() => _PracticeScreenState();
+}
+
+class _PracticeScreenState extends State<PracticeScreen> {
+  int _i = 0;
+  int _right = 0;
+  bool? _correct;
+  String _note = '';
+  final List<String> _review = [];
+
+  Exercise get _ex => widget.situation.exercises[_i];
+
+  void _grade(bool ok, {String note = ''}) {
+    setState(() {
+      _correct = ok;
+      _note = note;
+      if (ok) {
+        _right++;
+      } else {
+        _review.add(_ex.marathi);
+      }
+    });
+    HapticFeedback.selectionClick();
+  }
+
+  void _next() {
+    if (_i + 1 >= widget.situation.exercises.length) {
+      Navigator.of(context).pop(_right / widget.situation.exercises.length);
+      return;
+    }
+    setState(() {
+      _i++;
+      _correct = null;
+      _note = '';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = widget.situation.exercises.length;
+    final progress = (_i + (_correct != null ? 1 : 0)) / total;
+
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            // ---- header: what you are practising, and how far in ----------
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 20, 10),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).pop(_right / total),
+                    child: const SizedBox(
+                        width: 48, height: 48, child: Icon(Icons.close_rounded, size: 26)),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(widget.situation.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Boli.body(15, weight: FontWeight.w800)),
+                        Text('Phrase ${_i + 1} of $total',
+                            style: Boli.body(13, color: Boli.inkSoft)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: LayoutBuilder(
+                builder: (_, box) => Container(
+                  height: 8,
+                  decoration:
+                      BoxDecoration(color: Boli.sand, borderRadius: BorderRadius.circular(6)),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeOutCubic,
+                      width: box.maxWidth * progress,
+                      decoration: BoxDecoration(
+                          color: Boli.marigold, borderRadius: BorderRadius.circular(6)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 320),
+                transitionBuilder: (child, a) => FadeTransition(
+                  opacity: a,
+                  child: SlideTransition(
+                      position: Tween(begin: const Offset(.1, 0), end: Offset.zero).animate(a),
+                      child: child),
+                ),
+                child: SingleChildScrollView(
+                  key: ValueKey(_i),
+                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                  child: switch (_ex.kind) {
+                    Kind.choice => _Choice(ex: _ex, locked: _correct != null, onGrade: _grade),
+                    Kind.speak => _Speak(ex: _ex, locked: _correct != null, onGrade: _grade),
+                    Kind.build => _Build(ex: _ex, locked: _correct != null, onGrade: _grade),
+                    Kind.match => _Match(ex: _ex, locked: _correct != null, onGrade: _grade),
+                  },
+                ),
+              ),
+            ),
+            if (_correct != null) _Verdict(correct: _correct!, note: _note, onNext: _next),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------------- shared bits --
+
+class _Instruction extends StatelessWidget {
+  final String text;
+  const _Instruction(this.text);
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Text(text, style: Boli.head(23, weight: 700)),
+      );
+}
+
+class _Phrase extends StatelessWidget {
+  final String marathi, roman, english;
+  const _Phrase({required this.marathi, this.roman = '', this.english = ''});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        decoration: Boli.card(),
+        child: Column(
+          children: [
+            HandloomBorder(color: Boli.marigold.withValues(alpha: .5), height: 9, dense: true),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+              child: Column(
+                children: [
+                  Text(marathi,
+                      textAlign: TextAlign.center, style: Boli.head(36, weight: 600, height: 1.3)),
+                  if (roman.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(roman,
+                        textAlign: TextAlign.center,
+                        style: Boli.body(16, color: Boli.inkSoft).copyWith(
+                            fontStyle: FontStyle.italic)),
+                  ],
+                  if (english.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Boli.peacock.withValues(alpha: .1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(english,
+                          style: Boli.body(15, weight: FontWeight.w700, color: Boli.peacock)),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
+// ----------------------------------------------------------------- choice ---
+
+class _Choice extends StatefulWidget {
+  final Exercise ex;
+  final bool locked;
+  final void Function(bool, {String note}) onGrade;
+  const _Choice({required this.ex, required this.locked, required this.onGrade});
+  @override
+  State<_Choice> createState() => _ChoiceState();
+}
+
+class _ChoiceState extends State<_Choice> {
+  int? _picked;
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Instruction(widget.ex.prompt),
+          _Phrase(marathi: widget.ex.marathi, roman: widget.ex.roman),
+          const SizedBox(height: 22),
+          for (int i = 0; i < widget.ex.options.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _Option(
+                label: widget.ex.options[i],
+                right: widget.locked && i == widget.ex.answer,
+                wrong: widget.locked && _picked == i && i != widget.ex.answer,
+                onTap: widget.locked
+                    ? null
+                    : () {
+                        setState(() => _picked = i);
+                        widget.onGrade(i == widget.ex.answer,
+                            note: i == widget.ex.answer ? '' : widget.ex.options[widget.ex.answer]);
+                      },
+              ),
+            ),
+        ],
+      );
+}
+
+class _Option extends StatelessWidget {
+  final String label;
+  final bool right, wrong;
+  final VoidCallback? onTap;
+  const _Option({required this.label, required this.right, required this.wrong, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    var border = Boli.sand, fill = Boli.paper;
+    if (right) {
+      border = Boli.leaf;
+      fill = Boli.leaf.withValues(alpha: .1);
+    } else if (wrong) {
+      border = Boli.madder;
+      fill = Boli.madder.withValues(alpha: .1);
+    }
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        height: Boli.tap,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        decoration: BoxDecoration(
+          color: fill,
+          border: Border.all(color: border, width: 2.5),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(children: [
+          Expanded(child: Text(label, style: Boli.body(17, weight: FontWeight.w600))),
+          if (right) const Icon(Icons.check_circle_rounded, color: Boli.leaf, size: 23),
+          if (wrong) const Icon(Icons.cancel_rounded, color: Boli.madder, size: 23),
+        ]),
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------------------ speak ---
+
+/// The exercise that runs real inference: IndicConformer, on this device.
+class _Speak extends StatefulWidget {
+  final Exercise ex;
+  final bool locked;
+  final void Function(bool, {String note}) onGrade;
+  const _Speak({required this.ex, required this.locked, required this.onGrade});
+  @override
+  State<_Speak> createState() => _SpeakState();
+}
+
+class _SpeakState extends State<_Speak> {
+  static const _channel = MethodChannel('boli/asr');
+  bool _busy = false;
+  String _heard = '';
+  String _error = '';
+  double _score = 0;
+
+  double _similarity(String a, String b) {
+    String norm(String s) => s.replaceAll(RegExp(r'[\s।,.?!]'), '');
+    final x = norm(a), y = norm(b);
+    if (x.isEmpty || y.isEmpty) return 0;
+    final d = List.generate(x.length + 1, (_) => List<int>.filled(y.length + 1, 0));
+    for (var i = 0; i <= x.length; i++) d[i][0] = i;
+    for (var j = 0; j <= y.length; j++) d[0][j] = j;
+    for (var i = 1; i <= x.length; i++) {
+      for (var j = 1; j <= y.length; j++) {
+        final cost = x[i - 1] == y[j - 1] ? 0 : 1;
+        d[i][j] = math.min(math.min(d[i - 1][j] + 1, d[i][j - 1] + 1), d[i - 1][j - 1] + cost);
+      }
+    }
+    return 1 - d[x.length][y.length] / math.max(x.length, y.length);
+  }
+
+  Future<void> _listen() async {
+    setState(() {
+      _busy = true;
+      _heard = '';
+      _error = '';
+    });
+    try {
+      final text = await _channel.invokeMethod<String>('transcribeMic', {'seconds': 4.0}) ?? '';
+      if (!mounted) return;
+      final s = _similarity(text, widget.ex.marathi);
+      setState(() {
+        _heard = text.isEmpty ? '—' : text;
+        _score = s;
+        _busy = false;
+      });
+      widget.onGrade(s >= .55, note: s >= .55 ? '' : widget.ex.marathi);
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e.message ?? 'Microphone unavailable';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Instruction(widget.ex.prompt),
+          _Phrase(marathi: widget.ex.marathi, roman: widget.ex.roman, english: widget.ex.english),
+          const SizedBox(height: 20),
+          Center(child: MicButton(busy: _busy, onTap: (_busy || widget.locked) ? null : _listen)),
+          Center(
+            child: Text(
+              _busy ? 'Listening…' : (_error.isNotEmpty ? _error : 'Tap, then say it'),
+              style: Boli.body(15, weight: FontWeight.w700, color: Boli.inkSoft),
+            ),
+          ),
+          if (_heard.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _HeardPanel(heard: _heard, score: _score, target: widget.ex.marathi),
+          ],
+        ],
+      );
+}
+
+/// Shows what the device heard, and where it diverged. The per-character
+/// comparison stands in for the phoneme-level GOP scoring the real build does
+/// off the CTC posteriorgram.
+class _HeardPanel extends StatelessWidget {
+  final String heard, target;
+  final double score;
+  const _HeardPanel({required this.heard, required this.score, required this.target});
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = score >= .55;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: Boli.card(fill: Boli.cream),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.memory_rounded, size: 16, color: Boli.inkSoft),
+            const SizedBox(width: 7),
+            Text('HEARD ON THIS PHONE', style: Boli.label(size: 11)),
+            const Spacer(),
+            Text('${(score * 100).round()}% match',
+                style: Boli.body(13,
+                    weight: FontWeight.w800, color: ok ? Boli.leaf : Boli.terracotta)),
+          ]),
+          const SizedBox(height: 10),
+          Text(heard, style: Boli.head(26, weight: 600)),
+          if (!ok) ...[
+            const SizedBox(height: 12),
+            HandloomBorder(color: Boli.sand, height: 8, dense: true),
+            const SizedBox(height: 12),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.volume_up_rounded, size: 17, color: Boli.terracotta),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Expected  $target',
+                    style: Boli.body(15, weight: FontWeight.w600, color: Boli.terracotta)),
+              ),
+            ]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------------------ build ---
+
+class _Build extends StatefulWidget {
+  final Exercise ex;
+  final bool locked;
+  final void Function(bool, {String note}) onGrade;
+  const _Build({required this.ex, required this.locked, required this.onGrade});
+  @override
+  State<_Build> createState() => _BuildState();
+}
+
+class _BuildState extends State<_Build> {
+  final List<String> _picked = [];
+  late final List<String> _pool = [...widget.ex.bank];
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Instruction(widget.ex.prompt),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: Boli.peacock.withValues(alpha: .1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(widget.ex.english,
+                textAlign: TextAlign.center,
+                style: Boli.body(17, weight: FontWeight.w700, color: Boli.peacock)),
+          ),
+          const SizedBox(height: 22),
+          Container(
+            constraints: const BoxConstraints(minHeight: 74),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: Boli.sand, width: 2.5)),
+            ),
+            child: Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final w in _picked)
+                _Word(
+                    label: w,
+                    onTap: widget.locked
+                        ? null
+                        : () => setState(() {
+                              _picked.remove(w);
+                              _pool.add(w);
+                            })),
+            ]),
+          ),
+          const SizedBox(height: 24),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final w in _pool)
+              _Word(
+                  label: w,
+                  onTap: widget.locked
+                      ? null
+                      : () => setState(() {
+                            _pool.remove(w);
+                            _picked.add(w);
+                          })),
+          ]),
+          const SizedBox(height: 28),
+          if (!widget.locked)
+            BigButton(
+              label: 'Check',
+              onTap: _picked.isEmpty
+                  ? null
+                  : () => widget.onGrade(_picked.join(' ') == widget.ex.marathi,
+                      note: widget.ex.marathi),
+            ),
+        ],
+      );
+}
+
+class _Word extends StatelessWidget {
+  final String label;
+  final VoidCallback? onTap;
+  const _Word({required this.label, this.onTap});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 56,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          decoration: BoxDecoration(
+            color: Boli.paper,
+            border: Border.all(color: Boli.sand, width: 2.5),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(label, style: Boli.head(23, weight: 600)),
+        ),
+      );
+}
+
+// ------------------------------------------------------------------ match ---
+
+class _Match extends StatefulWidget {
+  final Exercise ex;
+  final bool locked;
+  final void Function(bool, {String note}) onGrade;
+  const _Match({required this.ex, required this.locked, required this.onGrade});
+  @override
+  State<_Match> createState() => _MatchState();
+}
+
+class _MatchState extends State<_Match> {
+  late final List<String> _left = [for (final p in widget.ex.pairs) p[0]];
+  late final List<String> _right = [for (final p in widget.ex.pairs) p[1]]..shuffle();
+  final Set<String> _done = {};
+  String? _l, _r, _flash;
+
+  void _check() {
+    if (_l == null || _r == null) return;
+    if (widget.ex.pairs.any((p) => p[0] == _l && p[1] == _r)) {
+      setState(() {
+        _done.addAll([_l!, _r!]);
+        _l = null;
+        _r = null;
+      });
+      if (_done.length == widget.ex.pairs.length * 2) widget.onGrade(true);
+    } else {
+      setState(() => _flash = _r);
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) setState(() { _flash = null; _l = null; _r = null; });
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Instruction(widget.ex.prompt),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Column(children: [
+                for (final w in _left)
+                  _MatchTile(
+                      label: w,
+                      done: _done.contains(w),
+                      on: _l == w,
+                      wrong: false,
+                      big: true,
+                      onTap: _done.contains(w) || widget.locked
+                          ? null
+                          : () { setState(() => _l = w); _check(); }),
+              ]),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(children: [
+                for (final w in _right)
+                  _MatchTile(
+                      label: w,
+                      done: _done.contains(w),
+                      on: _r == w,
+                      wrong: _flash == w,
+                      big: false,
+                      onTap: _done.contains(w) || widget.locked
+                          ? null
+                          : () { setState(() => _r = w); _check(); }),
+              ]),
+            ),
+          ]),
+        ],
+      );
+}
+
+class _MatchTile extends StatelessWidget {
+  final String label;
+  final bool done, on, wrong, big;
+  final VoidCallback? onTap;
+  const _MatchTile({
+    required this.label,
+    required this.done,
+    required this.on,
+    required this.wrong,
+    required this.big,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    var border = Boli.sand, fill = Boli.paper, text = Boli.ink;
+    if (done) {
+      border = Boli.leaf.withValues(alpha: .4);
+      fill = Boli.leaf.withValues(alpha: .09);
+      text = Boli.leaf;
+    } else if (wrong) {
+      border = Boli.madder;
+      fill = Boli.madder.withValues(alpha: .1);
+    } else if (on) {
+      border = Boli.marigold;
+      fill = Boli.marigold.withValues(alpha: .13);
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 240),
+          opacity: done ? .5 : 1,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 170),
+            height: Boli.tap + 6,
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: fill,
+              border: Border.all(color: border, width: 2.5),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(label,
+                textAlign: TextAlign.center,
+                style: big
+                    ? Boli.head(22, weight: 600, color: text)
+                    : Boli.body(16.5, weight: FontWeight.w600, color: text)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- verdict ---
+
+/// Replaces the springing feedback bar. Quiet, informational, and it never
+/// blocks: "Keep going" is the only action either way.
+class _Verdict extends StatelessWidget {
+  final bool correct;
+  final String note;
+  final VoidCallback onNext;
+  const _Verdict({required this.correct, required this.note, required this.onNext});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = correct ? Boli.leaf : Boli.terracotta;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      builder: (_, v, child) =>
+          Transform.translate(offset: Offset(0, (1 - v) * 90), child: Opacity(opacity: v, child: child)),
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Boli.paper,
+          border: Border(top: BorderSide(color: c, width: 3)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: [
+              Icon(correct ? Icons.check_circle_rounded : Icons.replay_circle_filled_rounded,
+                  color: c, size: 26),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  correct ? 'You can use this' : 'Saved for review',
+                  style: Boli.body(16.5, weight: FontWeight.w800, color: c),
+                ),
+              ),
+            ]),
+            if (note.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, left: 36),
+                child: Text(note, style: Boli.body(15, color: Boli.inkSoft)),
+              ),
+            const SizedBox(height: 12),
+            BigButton(label: 'Keep going', color: c, onTap: onNext),
+          ],
+        ),
+      ),
+    );
+  }
+}
