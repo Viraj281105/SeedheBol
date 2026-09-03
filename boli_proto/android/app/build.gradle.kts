@@ -23,6 +23,13 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Flutter's --target-platform only filters its own engine libs. The
+        // onnxruntime AAR ships arm64-v8a, armeabi-v7a and x86_64 regardless,
+        // which is ~33 MB of libonnxruntime.so this device can never load.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     androidResources {
