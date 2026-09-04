@@ -17,7 +17,10 @@ import kotlin.concurrent.thread
 class MainActivity : FlutterActivity() {
 
     private val asr by lazy { OnnxAsr(applicationContext) }
-    private val tts by lazy { OnnxTts(applicationContext) }
+
+    // FastPitch replaces Piper (OnnxTts.kt — kept, unused, reachable by
+    // swapping this one line back if FastPitch does not hold up on device).
+    private val tts by lazy { FastPitchTts(applicationContext) }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
