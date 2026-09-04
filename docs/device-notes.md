@@ -69,3 +69,54 @@ runs at 16000 Hz from `AudioRecord`. `OnnxTts.kt` contains no resampling of any
 kind, and shares no code with `MicRecorder`/the mel front-end. The only
 resampling in the repository lives in `scripts/tts_prepare.py`, where it exists
 solely to drive the offline round-trip check.
+
+## FastPitch, nine languages
+
+`scripts/build_all_tts.sh` and `scripts/build_all_asr.sh` build the full stack:
+FastPitch + HiFi-GAN and IndicConformer for hi, mr, bn, te, ta, gu, kn, or, ml.
+Urdu is absent from the Indic-TTS release and stays on Piper.
+
+**The models are character based.** `use_phonemes: false` in the shipped
+config, so Devanagari goes straight into the graph. No espeak-ng, no G2P, no
+precomputed phoneme table, and therefore no fixed vocabulary of speakable
+phrases and no GPL-3.0 obligation. This is the single largest difference from
+the Piper path.
+
+**Speaker choice is per language, not global.** Each checkpoint carries two
+speakers and they are not equally intelligible:
+
+| | speaker 0 | speaker 1 |
+|---|---|---|
+| bn | 0.746 | **0.947** |
+| te | 0.851 | **0.953** |
+| gu | 0.900 | **0.958** |
+
+`scripts/pick_voice.py` sweeps both and writes `reference/voices.json`. Read
+that file rather than hardcoding a speaker id.
+
+**Levels vary about fourfold between languages.** Bengali synthesises at
+roughly a quarter of Kannada's RMS. Peak normalisation is worth applying for
+its own sake — a quiet voice is unusable on a building site — but note that the
+peak-norm entries in `voices.json` were chosen on a six-phrase sample and the
+margin over raw level is small enough to be sampling noise. The speaker choice
+is not: that effect is an order of magnitude larger.
+
+**Quantisation does not solve the size.** MatMul-only int8 takes FastPitch from
+217 MB to 180 MB, not to the ~68 MB a full pass would give, because the weight
+sits in Conv1d and `ConvInteger` has no arm64 CPU kernel — the same gap that
+broke the ASR model on the Pixel 8. Quality is unaffected (0.990 vs 0.988).
+At ~236 MB per language, nine languages cannot ship in one APK; one bundled
+plus per-language download is the only shape that fits.
+
+**HiFi-GAN dominates synthesis cost.** For a 1.1 s phrase on desktop: FastPitch
+120 ms, HiFi-GAN 548 ms. The vocoder is 82% of the work, and it is transposed
+convolution, so it is also the part least likely to quantise. Synthesise a
+lesson's phrases when the lesson opens, not when the button is tapped; the
+existing PCM cache makes every repeat free.
+
+**Verification is Coqui-free.** `scripts/verify_tts.py` reads the character
+table from the exported `tokens.json`, which is what Kotlin reads too, so it
+keeps working after the 1.5 GB source checkpoints are deleted. It checks
+vocabulary coverage first: a character missing from the table is silently
+dropped, and the model then says something other than what it was asked to,
+with no error raised anywhere.
