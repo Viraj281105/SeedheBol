@@ -1,0 +1,56 @@
+{
+  "bn": {
+    "speaker_id": 1,
+    "peak_normalise": false,
+    "intelligibility": 0.947,
+    "exact": 3
+  },
+  "gu": {
+    "speaker_id": 1,
+    "peak_normalise": true,
+    "intelligibility": 1.0,
+    "exact": 6
+  },
+  "hi": {
+    "speaker_id": 0,
+    "peak_normalise": false,
+    "intelligibility": 0.988,
+    "exact": 5
+  },
+  "kn": {
+    "speaker_id": 0,
+    "peak_normalise": false,
+    "intelligibility": 1.0,
+    "exact": 6
+  },
+  "ml": {
+    "speaker_id": 1,
+    "peak_normalise": false,
+    "intelligibility": 0.99,
+    "exact": 5
+  },
+  "mr": {
+    "speaker_id": 0,
+    "peak_normalise": false,
+    "intelligibility": 0.988,
+    "exact": 5
+  },
+  "or": {
+    "speaker_id": 0,
+    "peak_normalise": false,
+    "intelligibility": 0.99,
+    "exact": 5
+  },
+  "ta": {
+    "speaker_id": 0,
+    "peak_normalise": false,
+    "intelligibility": 0.994,
+    "exact": 5
+  },
+  "te": {
+    "speaker_id": 1,
+    "peak_normalise": true,
+    "intelligibility": 0.993,
+    "exact": 5
+  }
+}

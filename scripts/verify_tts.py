@@ -38,6 +38,11 @@ TTS = ROOT / "models" / "tts_fastpitch"
 OUTDIR = ROOT / "reference" / "tts_fastpitch"
 PHRASES = json.loads((ROOT / "reference" / "phrases.json").read_text(encoding="utf-8"))
 
+# Which speaker actually ships, per language. Chosen by scripts/pick_voice.py;
+# the two speakers in a checkpoint are not equally intelligible.
+_VOICES = ROOT / "reference" / "voices.json"
+VOICES = json.loads(_VOICES.read_text(encoding="utf-8")) if _VOICES.exists() else {}
+
 ASR_SR = 16000
 TTS_SR = 22050
 
@@ -120,7 +125,9 @@ def similarity(a, b):
     return 1 - d[len(a)][len(b)] / max(len(a), len(b))
 
 
-def check(lang, speakers=(0,)):
+def check(lang, speakers=None):
+    if speakers is None:
+        speakers = (VOICES.get(lang, {}).get("speaker_id", 0),)
     onnx = TTS / f"{lang}_onnx"
     if not (onnx / "fastpitch.onnx").exists():
         print(f"{lang}: not exported")
