@@ -367,7 +367,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             "soc" to "Snapdragon 8 Elite Gen 5",
             "npu_provider" to if (gemmaEngine.isAvailable) "MediaPipe LLM (CPU+NNAPI)" else "N/A (Gemma not loaded)",
             "gemma_available" to gemmaEngine.isAvailable,
-            "gemma_model" to GemmaEngine.MODEL_FILENAME,
+            "gemma_model" to (gemmaEngine.resolvedModelName ?: GemmaEngine.MODEL_FILENAME),
             "thermal_headroom" to 0.45,
             "runtime_memory_mb" to 84.2,
             "airplane_mode" to true,

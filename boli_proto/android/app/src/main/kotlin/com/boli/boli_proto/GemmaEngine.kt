@@ -50,12 +50,16 @@ class GemmaEngine(private val context: Context) {
     private var llmInference: LlmInference? = null
     private val mutex = Mutex()
 
+    var resolvedModelName: String? = null
+        private set
+
     // -------------------------------------------------------------------------
     // Initialisation
     // -------------------------------------------------------------------------
 
     fun warmUp() {
         val modelFile = resolveModelFile()
+        resolvedModelName = modelFile?.name
         if (modelFile == null) {
             Log.i(TAG, "Gemma model not found — running in fallback-only mode. " +
                     "Push model to external files dir to enable Gemma.")
@@ -72,7 +76,7 @@ class GemmaEngine(private val context: Context) {
 
             llmInference = LlmInference.createFromOptions(context, options)
             isAvailable = true
-            Log.i(TAG, "Gemma 3n E2B ready — model=${modelFile.name} " +
+            Log.i(TAG, "Gemma ready — model=${modelFile.name} " +
                     "(${modelFile.length() / 1_048_576}MB)")
         } catch (e: Exception) {
             Log.e(TAG, "Gemma init failed — falling back to deterministic", e)
@@ -176,19 +180,21 @@ class GemmaEngine(private val context: Context) {
     private fun resolveModelFile(): File? {
         val extDir = context.getExternalFilesDir(null) ?: return null
 
-        // Primary: subfolder (recommended — keeps the external dir tidy)
-        val inSubfolder = File(extDir, "gemma/$MODEL_FILENAME")
-        if (inSubfolder.exists() && inSubfolder.length() > MIN_MODEL_SIZE_BYTES) {
-            Log.i(TAG, "Gemma model @ ${inSubfolder.absolutePath} " +
-                    "(${inSubfolder.length() / 1_048_576}MB)")
-            return inSubfolder
-        }
+        for (filename in CANDIDATE_FILENAMES) {
+            // Primary: subfolder (recommended — keeps the external dir tidy)
+            val inSubfolder = File(extDir, "gemma/$filename")
+            if (inSubfolder.exists() && inSubfolder.length() > MIN_MODEL_SIZE_BYTES) {
+                Log.i(TAG, "Gemma model @ ${inSubfolder.absolutePath} " +
+                        "(${inSubfolder.length() / 1_048_576}MB)")
+                return inSubfolder
+            }
 
-        // Fallback: directly in the external files dir (no subfolder)
-        val flat = File(extDir, MODEL_FILENAME)
-        if (flat.exists() && flat.length() > MIN_MODEL_SIZE_BYTES) {
-            Log.i(TAG, "Gemma model (flat) @ ${flat.absolutePath}")
-            return flat
+            // Fallback: directly in the external files dir (no subfolder)
+            val flat = File(extDir, filename)
+            if (flat.exists() && flat.length() > MIN_MODEL_SIZE_BYTES) {
+                Log.i(TAG, "Gemma model (flat) @ ${flat.absolutePath}")
+                return flat
+            }
         }
 
         return null
@@ -196,7 +202,13 @@ class GemmaEngine(private val context: Context) {
 
     companion object {
         private const val TAG = "BoliGemma"
-        const val MODEL_FILENAME = "gemma-3n-e2b-it-int4.task"
+        val CANDIDATE_FILENAMES = listOf(
+            "gemma-2b-it-cpu-int4.bin",
+            "gemma-2b-it-cpu-int4.task",
+            "gemma-3n-e2b-it-int4.task",
+            "gemma-2b-it-gpu-int4.bin",
+        )
+        const val MODEL_FILENAME = "gemma-2b-it-cpu-int4.bin"
         private const val MAX_OUTPUT_TOKENS = 512
         private const val TOP_K = 40
         private const val TEMPERATURE = 0.7f
