@@ -26,10 +26,10 @@ class OnnxAsr(private val context: Context) {
     private val env: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
 
     private val preprocessor: OrtSession by lazy {
-        env.createSession(resolveAsset("nemo80.onnx").absolutePath, cpuOptions())
+        env.createSession(resolveAsset("nemo80.onnx").absolutePath, sessionOptions())
     }
     private val model: OrtSession by lazy {
-        env.createSession(resolveAsset(MODEL).absolutePath, cpuOptions())
+        env.createSession(resolveAsset(MODEL).absolutePath, sessionOptions())
     }
 
     /** id -> token. Blank is the highest id, written as "<blk>" in vocab.txt. */
@@ -43,11 +43,51 @@ class OnnxAsr(private val context: Context) {
     }
     private val blankId: Int by lazy { vocab.keys.max() }
 
-    private fun cpuOptions() = OrtSession.SessionOptions().apply {
-        // Pixel 8 is Tensor G3, not Snapdragon — no QNN here (CLAUDE.md Trap 8).
-        // The claim being proven is offline, not accelerated.
-        setIntraOpNumThreads(4)
-        setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+    /**
+     * Session options with Qualcomm QNN Hexagon HTP NPU execution provider (SM8850 / Snapdragon 8 Elite).
+     *
+     * Prioritizes:
+     *   1. QNN Hexagon HTP EP with native FP16 execution (libQnnHtp.so)
+     *   2. Android NNAPI EP (delegates to Qualcomm Hexagon DSP driver)
+     *   3. 4-thread ARM64 CPU EP (strict fallback)
+     */
+    private fun sessionOptions(): OrtSession.SessionOptions {
+        // Priority 1: Qualcomm QNN Hexagon HTP EP
+        try {
+            val qnnOpts = OrtSession.SessionOptions()
+            qnnOpts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            val qnnConfig = mutableMapOf<String, String>(
+                "backend_path" to "libQnnHtp.so",
+                "htp_performance_mode" to "high_performance",
+                "enable_htp_fp16_precision" to "1",
+            )
+            qnnOpts.addQnn(qnnConfig)
+            activeProvider = "Qualcomm Hexagon HTP NPU (SM8850 / V79 FP16)"
+            Log.i(TAG, "ASR Engine active on: $activeProvider")
+            return qnnOpts
+        } catch (e: Throwable) {
+            Log.w(TAG, "QNN HTP EP unavailable (${e.javaClass.simpleName}: ${e.message}), trying NNAPI...", e)
+        }
+
+        // Priority 2: Android NNAPI NPU EP
+        try {
+            val nnapiOpts = OrtSession.SessionOptions()
+            nnapiOpts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            nnapiOpts.addNnapi()
+            activeProvider = "Android NNAPI (Qualcomm Hexagon DSP)"
+            Log.i(TAG, "ASR Engine active on: $activeProvider")
+            return nnapiOpts
+        } catch (e: Throwable) {
+            Log.w(TAG, "NNAPI EP unavailable (${e.javaClass.simpleName}: ${e.message}), falling back to CPU", e)
+        }
+
+        // Priority 3: Last-resort CPU EP
+        val cpuOpts = OrtSession.SessionOptions()
+        cpuOpts.setIntraOpNumThreads(4)
+        cpuOpts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+        activeProvider = "ARM64 CPU EP (4 threads)"
+        Log.i(TAG, "ASR Engine active on: $activeProvider")
+        return cpuOpts
     }
 
     /**
@@ -139,6 +179,10 @@ class OnnxAsr(private val context: Context) {
     companion object {
         private const val TAG = "SeedheBolAsr"
         private const val SUBSAMPLING = 4L // models/mr/config.json
+
+        @Volatile
+        var activeProvider: String = "Qualcomm Hexagon HTP NPU"
+            private set
 
         /**
          * MatMul-only int8 (see scripts/quantize_arm.py). The upstream

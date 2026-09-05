@@ -151,7 +151,9 @@ class BoliAiLayer(
         val translation = if (lesson.translation.isNotBlank() && !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.translation)) {
             lesson.translation
         } else {
-            deterministic.translateOcrText(cleanOcrText, ctx)
+            val det = deterministic.translateOcrText(cleanOcrText, ctx)
+            // Never surface internal error markers (starting with '[') as lesson content
+            if (det.isNotBlank() && !det.startsWith("[")) det else ""
         }
 
         val explanation = if (lesson.explanation.isNotBlank() && !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.explanation)) {

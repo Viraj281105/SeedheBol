@@ -14,6 +14,8 @@ import com.boli.boli_proto.GemmaContext
 import com.boli.boli_proto.GemmaEngine
 import com.boli.boli_proto.LearnerMemoryStore
 import com.boli.boli_proto.MlKitOcr
+import com.boli.boli_proto.OnnxAsr
+import com.boli.boli_proto.FastPitchTts
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -682,11 +684,12 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
 
     private fun handleGetHardwareTelemetry(result: Result) {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val thermalHeadroom = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val h = powerManager?.getThermalHeadroom(30)?.toDouble() ?: 0.35
-            if (h.isNaN()) 0.35 else h
+
+        // Thermal headroom: null when API < Q or PowerManager unavailable; UI should show "Unavailable"
+        val thermalHeadroom: Double? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            powerManager?.getThermalHeadroom(30)?.toDouble()?.takeIf { !it.isNaN() }
         } else {
-            0.35
+            null
         }
 
         val rt = Runtime.getRuntime()
@@ -695,13 +698,30 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val isAirplane = try {
             Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
         } catch (_: Exception) {
-            true
+            false // assume online unless confirmed otherwise
+        }
+
+        // SoC: prefer SOC_MODEL (API 31+), fall back to HARDWARE, never fabricate a value
+        val socName: String = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> Build.SOC_MODEL.ifBlank { Build.HARDWARE }
+            Build.HARDWARE.isNotBlank() -> Build.HARDWARE
+            else -> "Unavailable"
+        }
+
+        // Hardware NPU execution provider: accurately queries runtime engines
+        val asrProvider = OnnxAsr.activeProvider
+        val ttsProvider = FastPitchTts.activeProvider
+        val npuProvider = when {
+            asrProvider.contains("HTP") || asrProvider.contains("NNAPI") -> asrProvider
+            ttsProvider.contains("HTP") || ttsProvider.contains("NNAPI") -> ttsProvider
+            gemmaEngine.isAvailable -> "MediaPipe GenAI (Qualcomm Adreno/NPU)"
+            else -> asrProvider
         }
 
         val telemetry = mapOf(
-            "soc" to (Build.HARDWARE.ifBlank { "Snapdragon 8 Elite Gen 5" }),
+            "soc" to socName,
             "device_model" to "${Build.MANUFACTURER} ${Build.MODEL}",
-            "npu_provider" to if (gemmaEngine.isAvailable) "MediaPipe GenAI (CPU+NNAPI)" else "IndicConformer ONNX (CPU EP 4-thread)",
+            "npu_provider" to npuProvider,
             "gemma_available" to gemmaEngine.isAvailable,
             "gemma_model" to (gemmaEngine.resolvedModelName ?: GemmaEngine.MODEL_FILENAME),
             "thermal_headroom" to thermalHeadroom,

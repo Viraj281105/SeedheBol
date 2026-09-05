@@ -32,10 +32,10 @@ class FastPitchTts private constructor(private val context: Context) {
 
     private val fastpitch: OrtSession by lazy {
         resolveAsset("fastpitch.onnx.data")
-        env.createSession(resolveAsset(FASTPITCH_MODEL).absolutePath, cpuOptions())
+        env.createSession(resolveAsset(FASTPITCH_MODEL).absolutePath, npuSessionOptions("FastPitch"))
     }
     private val hifigan: OrtSession by lazy {
-        env.createSession(resolveAsset(HIFIGAN_MODEL).absolutePath, cpuOptions())
+        env.createSession(resolveAsset(HIFIGAN_MODEL).absolutePath, npuSessionOptions("HiFi-GAN"))
     }
 
     private data class Tokens(
@@ -113,9 +113,43 @@ class FastPitchTts private constructor(private val context: Context) {
         }
     }
 
-    private fun cpuOptions() = OrtSession.SessionOptions().apply {
-        setIntraOpNumThreads(4)
-        setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+    private fun npuSessionOptions(modelName: String): OrtSession.SessionOptions {
+        // Priority 1: Qualcomm QNN Hexagon HTP NPU
+        try {
+            val qnnOpts = OrtSession.SessionOptions()
+            qnnOpts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            val qnnConfig = mutableMapOf<String, String>(
+                "backend_path" to "libQnnHtp.so",
+                "htp_performance_mode" to "high_performance",
+                "enable_htp_fp16_precision" to "1",
+            )
+            qnnOpts.addQnn(qnnConfig)
+            activeProvider = "Qualcomm Hexagon HTP NPU (SM8850 / V79 FP16)"
+            Log.i(TAG, "$modelName running on: $activeProvider")
+            return qnnOpts
+        } catch (e: Throwable) {
+            Log.w(TAG, "QNN HTP EP unavailable for $modelName (${e.javaClass.simpleName}: ${e.message}), trying NNAPI...", e)
+        }
+
+        // Priority 2: Android NNAPI NPU EP
+        try {
+            val nnapiOpts = OrtSession.SessionOptions()
+            nnapiOpts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            nnapiOpts.addNnapi()
+            activeProvider = "Android NNAPI (Qualcomm Hexagon DSP)"
+            Log.i(TAG, "$modelName running on: $activeProvider")
+            return nnapiOpts
+        } catch (e: Throwable) {
+            Log.w(TAG, "NNAPI EP unavailable for $modelName (${e.javaClass.simpleName}: ${e.message}), using CPU fallback", e)
+        }
+
+        // Priority 3: Fallback CPU EP (4 threads)
+        val cpuOpts = OrtSession.SessionOptions()
+        cpuOpts.setIntraOpNumThreads(4)
+        cpuOpts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+        activeProvider = "ARM64 CPU EP (4 threads)"
+        Log.i(TAG, "$modelName running on: $activeProvider")
+        return cpuOpts
     }
 
     /** Same rule as OnnxAsr: ORT cannot mmap inside an APK, and a pushed file wins. */
@@ -332,6 +366,10 @@ class FastPitchTts private constructor(private val context: Context) {
         // Marathi against the app's own recogniser, speaker 1 scored 0.976.
         // See reference/voices.json.
         private const val SPEAKER = 0L
+
+        @Volatile
+        var activeProvider: String = "Qualcomm Hexagon HTP NPU"
+            private set
 
         @Volatile
         private var instance: FastPitchTts? = null

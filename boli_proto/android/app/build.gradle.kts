@@ -37,6 +37,13 @@ android {
         noCompress += listOf("onnx", "wav", "bin", "task", "data", "json")
     }
 
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            pickFirsts += listOf("**/libQnn*.so", "**/libonnxruntime*.so")
+        }
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
@@ -61,9 +68,9 @@ dependencies {
     // Unit Testing
     testImplementation("junit:junit:4.13.2")
 
-    // CPU execution provider only. The iQOO 15 is Snapdragon 8 Elite Gen 5;
-    // QNN/HTP delegation is possible for future work but not claimed here.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    // Qualcomm QNN Execution Provider bundle (Snapdragon 8 Elite / Hexagon HTP).
+    // Automatically pulls com.qualcomm.qti:qnn-runtime:2.37.1 with native libQnnHtp.so.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android-qnn:1.23.2")
 
     // ML Kit on-device OCR — Devanagari (Hindi + Marathi), Tamil, Telugu,
     // Kannada, Latin. No network calls, no API key, Apache 2.0.

@@ -192,8 +192,16 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
 
   Future<void> _speak(String text) async {
     if (text.isEmpty) return;
+    // Strip fallback error markers like "[Offline translation unavailable ...]"
+    // so TTS never reads internal error messages aloud.
+    final cleaned = text
+        .split('\n')
+        .where((line) => line.isNotEmpty && !line.startsWith('['))
+        .join(' ')
+        .trim();
+    if (cleaned.isEmpty) return;
     try {
-      await _asrChannel.invokeMethod<String>('speak', {'text': text});
+      await _asrChannel.invokeMethod<String>('speak', {'text': cleaned});
     } on PlatformException {
       // Offline fallback phrase missing in synth vocab is non-fatal
     }

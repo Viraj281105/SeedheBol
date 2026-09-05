@@ -34,6 +34,15 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // Point Qualcomm DSP FastRPC to application's native libraries for QNN HTP
+        try {
+            val nativeDir = applicationInfo.nativeLibraryDir
+            android.system.Os.setenv("ADSP_LIBRARY_PATH", "$nativeDir;/system/lib/rfsa/adsp;/system/vendor/lib/rfsa/adsp;/dsp", true)
+            Log.i(TAG, "Configured ADSP_LIBRARY_PATH for Hexagon NPU: $nativeDir")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not set ADSP_LIBRARY_PATH: ${t.message}")
+        }
+
         // BoliBridgePlugin registers 'boli/engine_methods' + event channels.
         // It also owns GemmaEngine warm-up — no duplication needed here.
         flutterEngine.plugins.add(com.boli.boli_proto.bridge.BoliBridgePlugin())

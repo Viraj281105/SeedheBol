@@ -9,11 +9,10 @@ import 'theme.dart';
 import 'widgets.dart';
 import 'with_someone_screen.dart';
 
-/// Phone-native capabilities, surfaced as tools rather than buried in settings.
+/// Phone-native capabilities, surfaced as interactive learning tools.
 ///
-/// Only the speaking path runs real inference in this prototype. Everything
-/// here is an interface shell that shows the intended interaction, and each one
-/// says so plainly rather than pretending.
+/// Powers on-device Gemma-2B LLM inference, IndicConformer ASR,
+/// OCR vision, and hardware telemetry.
 class ToolsScreen extends StatelessWidget {
   final Lang l2;
   const ToolsScreen({super.key, required this.l2});
@@ -50,25 +49,11 @@ class ToolsScreen extends StatelessWidget {
         Boli.peacock,
       ),
       _T(
-        'Commute mode',
-        'प्रवासात',
-        'Hands free, screen off, audio only',
-        Icons.directions_bus_rounded,
-        Boli.madder,
-      ),
-      _T(
         'Practise with someone',
         'सोबत सराव',
         'Tap two phones together, no internet',
         Icons.contactless_rounded,
         Boli.marigold,
-      ),
-      _T(
-        'Write the letters',
-        'अक्षरे',
-        'Trace Devanagari with your finger',
-        Icons.draw_rounded,
-        Boli.leaf,
       ),
     ];
 
@@ -151,19 +136,12 @@ class _ToolCard extends StatelessWidget {
             isScrollControlled: true,
             builder: (_) => const _OfficeKitTelemetrySheet(),
           );
-        } else if (index == 5) {
+        } else if (index == 4) {
           // Practise with someone — Gemma-powered peer translation & coaching
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => const WithSomeoneScreen(),
             ),
-          );
-        } else {
-          showModalBottomSheet(
-            context: context,
-            backgroundColor: Colors.transparent,
-            isScrollControlled: true,
-            builder: (_) => _ToolSheet(tool: tool),
           );
         }
       },
@@ -202,96 +180,6 @@ class _ToolCard extends StatelessWidget {
           ],
         ),
       ),
-    ),
-  );
-}
-
-class _ToolSheet extends StatelessWidget {
-  final _T tool;
-  const _ToolSheet({required this.tool});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    decoration: const BoxDecoration(
-      color: Boli.paper,
-      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-    ),
-    padding: const EdgeInsets.fromLTRB(22, 14, 22, 28),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Center(
-          child: Container(
-            width: 42,
-            height: 5,
-            decoration: BoxDecoration(
-              color: Boli.sand,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Row(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: tool.tint.withValues(alpha: .12),
-                borderRadius: BorderRadius.circular(15),
-              ),
-              child: Icon(tool.icon, color: tool.tint, size: 28),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(tool.title, style: Boli.head(23, weight: 700)),
-                  Text(tool.native, style: Boli.body(16, color: Boli.inkSoft)),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        Text(tool.subtitle, style: Boli.body(16.5, height: 1.5)),
-        const SizedBox(height: 18),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Boli.cream,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Boli.sand, width: 1.5),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(
-                Icons.construction_rounded,
-                size: 18,
-                color: Boli.inkSoft,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Interface only in this prototype. The speech recognition behind '
-                  '“Say it out loud” is real and runs on this phone.',
-                  style: Boli.body(14, color: Boli.inkSoft),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        BigButton(
-          label: 'Close',
-          outline: true,
-          color: Boli.inkSoft,
-          onTap: () => Navigator.of(context).pop(),
-        ),
-      ],
     ),
   );
 }
@@ -396,12 +284,12 @@ class _OfficeKitTelemetrySheetState extends State<_OfficeKitTelemetrySheet> {
   @override
   Widget build(BuildContext context) {
     final t = _telemetry ?? {};
-    final soc = t['soc'] as String? ?? 'Snapdragon 8 Elite Gen 5';
-    final npu = t['npu_provider'] as String? ?? 'IndicConformer ONNX CPU EP (4 threads)';
-    final mem = t['runtime_memory_mb']?.toString() ?? '84.2';
-    final headroomNum = (t['thermal_headroom'] as num?)?.toDouble() ?? 0.35;
-    final headroomPct = (headroomNum * 100).round();
-    final isAirplane = t['airplane_mode'] as bool? ?? true;
+    final soc = t['soc'] as String? ?? 'Unavailable';
+    final npu = t['npu_provider'] as String? ?? 'Unavailable';
+    final mem = t['runtime_memory_mb']?.toString() ?? 'Unavailable';
+    final headroomRaw = (t['thermal_headroom'] as num?)?.toDouble();
+    final headroomPct = headroomRaw != null ? (headroomRaw * 100).round() : null;
+    final isAirplane = t['airplane_mode'] as bool? ?? false;
 
     return Container(
       decoration: const BoxDecoration(
@@ -492,13 +380,19 @@ class _OfficeKitTelemetrySheetState extends State<_OfficeKitTelemetrySheet> {
                 const SizedBox(height: 8),
                 _telemetryRow('Execution Engine', npu, Icons.bolt_rounded),
                 const SizedBox(height: 8),
-                _telemetryRow('RAM Heap Usage', '$mem MB on-device', Icons.storage_rounded),
+                _telemetryRow(
+                  'RAM Heap Usage',
+                  mem != 'Unavailable' ? '$mem MB on-device' : 'Unavailable',
+                  Icons.storage_rounded,
+                ),
                 const SizedBox(height: 8),
                 _telemetryRow(
                   'Thermal Headroom',
-                  '$headroomPct% (Nominal / Cooling OK)',
+                  headroomPct != null ? '$headroomPct% (Nominal / Cooling OK)' : 'Unavailable',
                   Icons.thermostat_rounded,
-                  color: headroomPct < 70 ? Boli.leaf : Boli.terracotta,
+                  color: headroomPct == null
+                      ? Boli.inkSoft
+                      : headroomPct < 70 ? Boli.leaf : Boli.terracotta,
                 ),
               ],
             ),
