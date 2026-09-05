@@ -24,12 +24,18 @@ class _OnboardingState extends State<Onboarding> {
     if (_step < 2) {
       setState(() => _step++);
     } else {
-      Navigator.of(context).pushReplacement(PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 500),
-        pageBuilder: (_, __, ___) =>
-            Shell(l1: languages[_l1], l2: targetLanguages[_l2], job: jobs[_job]),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-      ));
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 500),
+          pageBuilder: (_, __, ___) => Shell(
+            l1: languages[_l1],
+            l2: targetLanguages[_l2],
+            job: jobs[_job],
+          ),
+          transitionsBuilder: (_, a, __, c) =>
+              FadeTransition(opacity: a, child: c),
+        ),
+      );
     }
   }
 
@@ -47,7 +53,10 @@ class _OnboardingState extends State<Onboarding> {
                     GestureDetector(
                       onTap: () => setState(() => _step--),
                       child: const SizedBox(
-                          width: 44, height: 44, child: Icon(Icons.arrow_back_rounded, size: 26)),
+                        width: 44,
+                        height: 44,
+                        child: Icon(Icons.arrow_back_rounded, size: 26),
+                      ),
                     )
                   else
                     const SizedBox(width: 44, height: 44),
@@ -79,32 +88,36 @@ class _OnboardingState extends State<Onboarding> {
                 transitionBuilder: (child, a) => FadeTransition(
                   opacity: a,
                   child: SlideTransition(
-                      position: Tween(begin: const Offset(.08, 0), end: Offset.zero).animate(a),
-                      child: child),
+                    position: Tween(
+                      begin: const Offset(.08, 0),
+                      end: Offset.zero,
+                    ).animate(a),
+                    child: child,
+                  ),
                 ),
                 child: switch (_step) {
                   0 => _LangStep(
-                      key: const ValueKey(0),
-                      title: 'Which language do you speak?',
-                      caption: 'तुम्ही कोणती भाषा बोलता?',
-                      selected: _l1,
-                      onSelect: (i) => setState(() => _l1 = i),
-                      showInstall: false,
-                    ),
+                    key: const ValueKey(0),
+                    title: 'Which language do you speak?',
+                    caption: 'तुम्ही कोणती भाषा बोलता?',
+                    selected: _l1,
+                    onSelect: (i) => setState(() => _l1 = i),
+                    showInstall: false,
+                  ),
                   1 => _LangStep(
-                      key: const ValueKey(1),
-                      title: 'Which language do you need?',
-                      caption: 'तुम्हाला कोणती भाषा हवी आहे?',
-                      selected: _l2,
-                      onSelect: (i) => setState(() => _l2 = i),
-                      showInstall: true,
-                      options: targetLanguages,
-                    ),
+                    key: const ValueKey(1),
+                    title: 'Which language do you need?',
+                    caption: 'तुम्हाला कोणती भाषा हवी आहे?',
+                    selected: _l2,
+                    onSelect: (i) => setState(() => _l2 = i),
+                    showInstall: true,
+                    options: targetLanguages,
+                  ),
                   _ => _JobStep(
-                      key: const ValueKey(2),
-                      selected: _job,
-                      onSelect: (i) => setState(() => _job = i),
-                    ),
+                    key: const ValueKey(2),
+                    selected: _job,
+                    onSelect: (i) => setState(() => _job = i),
+                  ),
                 },
               ),
             ),
@@ -115,17 +128,23 @@ class _OnboardingState extends State<Onboarding> {
                   if (_step == 1 && !targetLanguages[_l2].installed)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: Row(children: [
-                        const Icon(Icons.download_rounded, size: 18, color: Boli.inkSoft),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '${targetLanguages[_l2].english} needs a ${targetLanguages[_l2].mb} MB download. '
-                            'Marathi is already on this phone.',
-                            style: Boli.body(13.5, color: Boli.inkSoft),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.download_rounded,
+                            size: 18,
+                            color: Boli.inkSoft,
                           ),
-                        ),
-                      ]),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${targetLanguages[_l2].english} needs a ${targetLanguages[_l2].mb} MB download. '
+                              'Marathi is already on this phone.',
+                              style: Boli.body(13.5, color: Boli.inkSoft),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   BigButton(
                     label: _step == 2 ? 'Start' : 'Next',
@@ -160,72 +179,94 @@ class _LangStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Boli.head(27, weight: 700)),
-                const SizedBox(height: 4),
-                Text(caption, style: Boli.body(17, color: Boli.inkSoft)),
-                const SizedBox(height: 16),
-              ],
-            ),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Boli.head(27, weight: 700)),
+            const SizedBox(height: 4),
+            Text(caption, style: Boli.body(17, color: Boli.inkSoft)),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+      Expanded(
+        child: GridView.builder(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 2.0,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
           ),
-          Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 2.0,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              itemCount: (options ?? languages).length,
-              itemBuilder: (_, i) {
-                final l = (options ?? languages)[i];
-                final on = i == selected;
-                return GestureDetector(
-                  onTap: () => onSelect(i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 170),
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    decoration: BoxDecoration(
-                      color: on ? Boli.ink : Boli.paper,
-                      border: Border.all(color: on ? Boli.ink : Boli.sand, width: 2.5),
-                      borderRadius: BorderRadius.circular(16),
+          itemCount: (options ?? languages).length,
+          itemBuilder: (_, i) {
+            final l = (options ?? languages)[i];
+            final on = i == selected;
+            return GestureDetector(
+              onTap: () => onSelect(i),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 170),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: on ? Boli.ink : Boli.paper,
+                  border: Border.all(
+                    color: on ? Boli.ink : Boli.sand,
+                    width: 2.5,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l.native,
+                      style: Boli.head(
+                        24,
+                        weight: 600,
+                        color: on ? Boli.cream : Boli.ink,
+                      ),
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(height: 1),
+                    Row(
                       children: [
-                        Text(l.native,
-                            style: Boli.head(24, weight: 600, color: on ? Boli.cream : Boli.ink)),
-                        const SizedBox(height: 1),
-                        Row(children: [
-                          Flexible(
-                            child: Text(l.native == l.english ? 'You already read this' : l.english,
-                                overflow: TextOverflow.ellipsis,
-                                style: Boli.body(13,
-                                    color: on ? Boli.cream.withValues(alpha: .75) : Boli.inkSoft)),
+                        Flexible(
+                          child: Text(
+                            l.native == l.english
+                                ? 'You already read this'
+                                : l.english,
+                            overflow: TextOverflow.ellipsis,
+                            style: Boli.body(
+                              13,
+                              color: on
+                                  ? Boli.cream.withValues(alpha: .75)
+                                  : Boli.inkSoft,
+                            ),
                           ),
-                          if (showInstall && l.installed) ...[
-                            const SizedBox(width: 6),
-                            Icon(Icons.offline_pin_rounded,
-                                size: 15, color: on ? Boli.marigold : Boli.leaf),
-                          ],
-                        ]),
+                        ),
+                        if (showInstall && l.installed) ...[
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.offline_pin_rounded,
+                            size: 15,
+                            color: on ? Boli.marigold : Boli.leaf,
+                          ),
+                        ],
                       ],
                     ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      );
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ],
+  );
 }
 
 class _JobStep extends StatelessWidget {
@@ -235,64 +276,91 @@ class _JobStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('What work do you do?', style: Boli.head(27, weight: 700)),
-                const SizedBox(height: 4),
-                Text('This decides which phrases come first.',
-                    style: Boli.body(17, color: Boli.inkSoft)),
-                const SizedBox(height: 16),
-              ],
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('What work do you do?', style: Boli.head(27, weight: 700)),
+            const SizedBox(height: 4),
+            Text(
+              'This decides which phrases come first.',
+              style: Boli.body(17, color: Boli.inkSoft),
             ),
-          ),
-          Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              itemCount: jobs.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 9),
-              itemBuilder: (_, i) {
-                final j = jobs[i];
-                final on = i == selected;
-                return GestureDetector(
-                  onTap: () => onSelect(i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 170),
-                    height: 70,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: on ? Boli.ink : Boli.paper,
-                      border: Border.all(color: on ? Boli.ink : Boli.sand, width: 2.5),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(children: [
-                      Icon(j.icon, size: 26, color: on ? Boli.marigold : Boli.peacock),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(j.title,
-                                style: Boli.body(16.5,
-                                    weight: FontWeight.w700, color: on ? Boli.cream : Boli.ink)),
-                            Text(j.native,
-                                style: Boli.body(14,
-                                    color: on ? Boli.cream.withValues(alpha: .7) : Boli.inkSoft)),
-                          ],
-                        ),
-                      ),
-                      if (on) const Icon(Icons.check_circle_rounded, color: Boli.marigold, size: 24),
-                    ]),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+      Expanded(
+        child: ListView.separated(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          itemCount: jobs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 9),
+          itemBuilder: (_, i) {
+            final j = jobs[i];
+            final on = i == selected;
+            return GestureDetector(
+              onTap: () => onSelect(i),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 170),
+                height: 70,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: on ? Boli.ink : Boli.paper,
+                  border: Border.all(
+                    color: on ? Boli.ink : Boli.sand,
+                    width: 2.5,
                   ),
-                );
-              },
-            ),
-          ),
-        ],
-      );
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      j.icon,
+                      size: 26,
+                      color: on ? Boli.marigold : Boli.peacock,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            j.title,
+                            style: Boli.body(
+                              16.5,
+                              weight: FontWeight.w700,
+                              color: on ? Boli.cream : Boli.ink,
+                            ),
+                          ),
+                          Text(
+                            j.native,
+                            style: Boli.body(
+                              14,
+                              color: on
+                                  ? Boli.cream.withValues(alpha: .7)
+                                  : Boli.inkSoft,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (on)
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        color: Boli.marigold,
+                        size: 24,
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ],
+  );
 }

@@ -1,0 +1,19 @@
+name: boli_l1_interference
+description: >
+  L1-to-L2 Phonological Interference Matrix & Goodness of Pronunciation (GOP)
+  Scoring Engine for Boli. Calculates per-phoneme log-posterior ratios over
+  CTC acoustic frame activations and maps errors to articulatory diagnostic cues.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  meta: ^1.11.0
+  boli_shared_models:
+    path: ../shared_models
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^3.0.0

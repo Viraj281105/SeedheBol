@@ -5,10 +5,12 @@ import 'theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+    ),
+  );
   runApp(const BoliApp());
 }
 
@@ -17,11 +19,11 @@ class BoliApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'Boli',
-        debugShowCheckedModeBanner: false,
-        theme: Boli.theme,
-        home: const Splash(),
-      );
+    title: 'Boli',
+    debugShowCheckedModeBanner: false,
+    theme: Boli.theme,
+    home: const Splash(),
+  );
 }
 
 /// Short open. It also covers the ~1.5s Kotlin spends building both ONNX
@@ -34,19 +36,24 @@ class Splash extends StatefulWidget {
 }
 
 class _SplashState extends State<Splash> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))..forward();
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+  )..forward();
 
   @override
   void initState() {
     super.initState();
     Future.delayed(const Duration(milliseconds: 1750), () {
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 480),
-        pageBuilder: (_, __, ___) => const Onboarding(),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-      ));
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 480),
+          pageBuilder: (_, __, ___) => const Onboarding(),
+          transitionsBuilder: (_, a, __, c) =>
+              FadeTransition(opacity: a, child: c),
+        ),
+      );
     });
   }
 
@@ -58,9 +65,18 @@ class _SplashState extends State<Splash> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final mark = CurvedAnimation(parent: _c, curve: const Interval(0, .6, curve: Curves.easeOutCubic));
-    final word = CurvedAnimation(parent: _c, curve: const Interval(.3, .8, curve: Curves.easeOut));
-    final tag = CurvedAnimation(parent: _c, curve: const Interval(.55, 1, curve: Curves.easeOut));
+    final mark = CurvedAnimation(
+      parent: _c,
+      curve: const Interval(0, .6, curve: Curves.easeOutCubic),
+    );
+    final word = CurvedAnimation(
+      parent: _c,
+      curve: const Interval(.3, .8, curve: Curves.easeOut),
+    );
+    final tag = CurvedAnimation(
+      parent: _c,
+      curve: const Interval(.55, 1, curve: Curves.easeOut),
+    );
 
     return Scaffold(
       backgroundColor: Boli.ink,
@@ -81,20 +97,33 @@ class _SplashState extends State<Splash> with SingleTickerProviderStateMixin {
             const SizedBox(height: 22),
             FadeTransition(
               opacity: word,
-              child: Text('बोली', style: Boli.head(58, weight: 800, color: Boli.cream)),
+              child: Text(
+                'बोली',
+                style: Boli.head(58, weight: 800, color: Boli.cream),
+              ),
             ),
             const SizedBox(height: 6),
             FadeTransition(
               opacity: tag,
-              child: Column(children: [
-                Text('Language for work',
-                    style: Boli.body(16, color: Boli.cream.withValues(alpha: .72))),
-                const SizedBox(height: 22),
-                SizedBox(
-                  width: 210,
-                  child: HandloomBorder(color: Boli.marigold.withValues(alpha: .55), height: 12),
-                ),
-              ]),
+              child: Column(
+                children: [
+                  Text(
+                    'Language for work',
+                    style: Boli.body(
+                      16,
+                      color: Boli.cream.withValues(alpha: .72),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: 210,
+                    child: HandloomBorder(
+                      color: Boli.marigold.withValues(alpha: .55),
+                      height: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

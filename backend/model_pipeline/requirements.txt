@@ -1,0 +1,13 @@
+# tools/model_pipeline/requirements.txt
+# Core dependencies for offline model export, INT8 quantization, and Parler-TTS batch rendering
+
+torch>=2.2.0
+torchaudio>=2.2.0
+onnx>=1.15.0
+onnxruntime>=1.17.0
+numpy>=1.24.0
+scipy>=1.11.0
+soundfile>=0.12.1
+transformers>=4.38.0
+tqdm>=4.66.0
+pytest>=8.0.0

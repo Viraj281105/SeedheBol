@@ -35,9 +35,12 @@ class SuccessScreen extends StatefulWidget {
   State<SuccessScreen> createState() => _SuccessScreenState();
 }
 
-class _SuccessScreenState extends State<SuccessScreen> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..forward();
+class _SuccessScreenState extends State<SuccessScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  )..forward();
 
   double get _score => widget.total == 0 ? 0 : widget.correct / widget.total;
 
@@ -49,9 +52,18 @@ class _SuccessScreenState extends State<SuccessScreen> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    final ring = CurvedAnimation(parent: _c, curve: const Interval(0, .6, curve: Curves.easeOutCubic));
-    final body = CurvedAnimation(parent: _c, curve: const Interval(.3, .85, curve: Curves.easeOut));
-    final tail = CurvedAnimation(parent: _c, curve: const Interval(.55, 1, curve: Curves.easeOut));
+    final ring = CurvedAnimation(
+      parent: _c,
+      curve: const Interval(0, .6, curve: Curves.easeOutCubic),
+    );
+    final body = CurvedAnimation(
+      parent: _c,
+      curve: const Interval(.3, .85, curve: Curves.easeOut),
+    );
+    final tail = CurvedAnimation(
+      parent: _c,
+      curve: const Interval(.55, 1, curve: Curves.easeOut),
+    );
 
     return Scaffold(
       body: Stack(
@@ -69,21 +81,25 @@ class _SuccessScreenState extends State<SuccessScreen> with SingleTickerProvider
                         scale: Tween(begin: .8, end: 1.0).animate(ring),
                         child: FadeTransition(
                           opacity: ring,
-                          child: Column(children: [
-                            ReadinessRing(value: _score, size: 128),
-                            const SizedBox(height: 20),
-                            Text(
-                              _score >= .8 ? 'You can handle this now' : 'Good progress',
-                              textAlign: TextAlign.center,
-                              style: Boli.head(29, weight: 700),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              widget.situation.title,
-                              textAlign: TextAlign.center,
-                              style: Boli.body(16.5, color: Boli.inkSoft),
-                            ),
-                          ]),
+                          child: Column(
+                            children: [
+                              ReadinessRing(value: _score, size: 128),
+                              const SizedBox(height: 20),
+                              Text(
+                                _score >= .8
+                                    ? 'You can handle this now'
+                                    : 'Good progress',
+                                textAlign: TextAlign.center,
+                                style: Boli.head(29, weight: 700),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                widget.situation.title,
+                                textAlign: TextAlign.center,
+                                style: Boli.body(16.5, color: Boli.inkSoft),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -94,12 +110,22 @@ class _SuccessScreenState extends State<SuccessScreen> with SingleTickerProvider
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 18),
                           decoration: Boli.card(),
-                          child: Row(children: [
-                            _Stat('${widget.correct}/${widget.total}', 'ANSWERED\nRIGHT'),
-                            _Stat('${widget.learned.length}', 'PHRASES\nYOU CAN USE'),
-                            _Stat('${widget.elapsed.inMinutes}:${(widget.elapsed.inSeconds % 60).toString().padLeft(2, '0')}',
-                                'TIME\nTAKEN'),
-                          ]),
+                          child: Row(
+                            children: [
+                              _Stat(
+                                '${widget.correct}/${widget.total}',
+                                'ANSWERED\nRIGHT',
+                              ),
+                              _Stat(
+                                '${widget.learned.length}',
+                                'PHRASES\nYOU CAN USE',
+                              ),
+                              _Stat(
+                                '${widget.elapsed.inMinutes}:${(widget.elapsed.inSeconds % 60).toString().padLeft(2, '0')}',
+                                'TIME\nTAKEN',
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -166,12 +192,14 @@ class _Stat extends StatelessWidget {
   const _Stat(this.value, this.label);
   @override
   Widget build(BuildContext context) => Expanded(
-        child: Column(children: [
-          Text(value, style: Boli.head(26, weight: 700, color: Boli.terracotta)),
-          const SizedBox(height: 4),
-          Text(label, textAlign: TextAlign.center, style: Boli.label(size: 10)),
-        ]),
-      );
+    child: Column(
+      children: [
+        Text(value, style: Boli.head(26, weight: 700, color: Boli.terracotta)),
+        const SizedBox(height: 4),
+        Text(label, textAlign: TextAlign.center, style: Boli.label(size: 10)),
+      ],
+    ),
+  );
 }
 
 /// A phrase with a Listen button — the synthesiser doing revision work.
@@ -186,23 +214,33 @@ class _PhraseRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
       decoration: Boli.card(border: c.withValues(alpha: .35)),
-      child: Row(children: [
-        Icon(ready ? Icons.check_circle_rounded : Icons.replay_rounded, color: c, size: 21),
-        const SizedBox(width: 12),
-        Expanded(child: Text(text, style: Boli.head(21, weight: 600))),
-        GestureDetector(
-          onTap: () => PhraseAudio.play(text),
-          child: Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: Boli.peacock.withValues(alpha: .12),
-              borderRadius: BorderRadius.circular(23),
-            ),
-            child: const Icon(Icons.volume_up_rounded, color: Boli.peacock, size: 22),
+      child: Row(
+        children: [
+          Icon(
+            ready ? Icons.check_circle_rounded : Icons.replay_rounded,
+            color: c,
+            size: 21,
           ),
-        ),
-      ]),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text, style: Boli.head(21, weight: 600))),
+          GestureDetector(
+            onTap: () => PhraseAudio.play(text),
+            child: Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: Boli.peacock.withValues(alpha: .12),
+                borderRadius: BorderRadius.circular(23),
+              ),
+              child: const Icon(
+                Icons.volume_up_rounded,
+                color: Boli.peacock,
+                size: 22,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -215,14 +253,14 @@ class _Petals extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => IgnorePointer(
-        child: AnimatedBuilder(
-          animation: controller,
-          builder: (_, __) => CustomPaint(
-            size: Size.infinite,
-            painter: _PetalPainter(controller.value),
-          ),
-        ),
-      );
+    child: AnimatedBuilder(
+      animation: controller,
+      builder: (_, __) => CustomPaint(
+        size: Size.infinite,
+        painter: _PetalPainter(controller.value),
+      ),
+    ),
+  );
 }
 
 class _PetalPainter extends CustomPainter {
@@ -243,7 +281,12 @@ class _PetalPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const palette = [Boli.marigold, Boli.turmeric, Boli.terracotta, Boli.peacock];
+    const palette = [
+      Boli.marigold,
+      Boli.turmeric,
+      Boli.terracotta,
+      Boli.peacock,
+    ];
     for (int i = 0; i < _seeds.length; i++) {
       final s = _seeds[i];
       final lt = ((t - s.delay) / (1 - s.delay)).clamp(0.0, 1.0);
@@ -257,7 +300,11 @@ class _PetalPainter extends CustomPainter {
       canvas.rotate(s.spin * lt);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromCenter(center: Offset.zero, width: s.size, height: s.size * .6),
+          Rect.fromCenter(
+            center: Offset.zero,
+            width: s.size,
+            height: s.size * .6,
+          ),
           const Radius.circular(3),
         ),
         paint,

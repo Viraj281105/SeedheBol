@@ -9,6 +9,34 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
+  boli_dialogue_engine:
+    dependency: "direct main"
+    description:
+      path: "../packages/dialogue_engine"
+      relative: true
+    source: path
+    version: "0.1.0"
+  boli_g2p_indic:
+    dependency: "direct main"
+    description:
+      path: "../packages/g2p_indic"
+      relative: true
+    source: path
+    version: "0.1.0"
+  boli_l1_interference:
+    dependency: "direct main"
+    description:
+      path: "../packages/l1_interference"
+      relative: true
+    source: path
+    version: "0.1.0"
+  boli_shared_models:
+    dependency: "direct main"
+    description:
+      path: "../packages/shared_models"
+      relative: true
+    source: path
+    version: "0.1.0"
   boolean_selector:
     dependency: transitive
     description:

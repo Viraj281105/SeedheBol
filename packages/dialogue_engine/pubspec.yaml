@@ -1,0 +1,19 @@
+name: boli_dialogue_engine
+description: >
+  Situational Branching Dialogue State Machine for Boli. Manages graph
+  traversal, fuzzy keyword-intent matching against streaming ASR transcripts,
+  register adaptation, and session lifecycle.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  meta: ^1.11.0
+  boli_shared_models:
+    path: ../shared_models
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^3.0.0

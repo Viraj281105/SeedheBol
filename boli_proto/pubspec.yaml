@@ -35,6 +35,16 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
+  # Core on-device Boli language & dialogue engines
+  boli_shared_models:
+    path: ../packages/shared_models
+  boli_g2p_indic:
+    path: ../packages/g2p_indic
+  boli_l1_interference:
+    path: ../packages/l1_interference
+  boli_dialogue_engine:
+    path: ../packages/dialogue_engine
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -1,0 +1,5 @@
+# tools/officekit_bridge/requirements.txt
+# Dependencies for hardware telemetry verification, ADB bridge, and Office Kit sync
+
+numpy>=1.24.0
+pytest>=8.0.0

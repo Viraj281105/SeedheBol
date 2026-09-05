@@ -1,0 +1,19 @@
+name: boli_g2p_indic
+description: >
+  Indic Grapheme-to-Phoneme engine for Boli. Converts Unicode text
+  in Devanagari, Tamil, Kannada, and Malayalam scripts to canonical IPA
+  phoneme sequences. Includes Hindi schwa-deletion rule engine.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  meta: ^1.11.0
+  boli_shared_models:
+    path: ../shared_models
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^3.0.0

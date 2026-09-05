@@ -17,8 +17,14 @@ class Lang {
   /// no English pivot; English is an explanation language, not a target.
   final bool l1Only;
 
-  const Lang(this.code, this.native, this.english,
-      {this.installed = false, this.mb = 187, this.l1Only = false});
+  const Lang(
+    this.code,
+    this.native,
+    this.english, {
+    this.installed = false,
+    this.mb = 187,
+    this.l1Only = false,
+  });
 }
 
 /// Languages offered as L2 — everything you can actually learn here.
@@ -90,28 +96,28 @@ enum Ctx { work, money, market, health, home }
 
 extension CtxInfo on Ctx {
   String get label => switch (this) {
-        Ctx.work => 'On site',
-        Ctx.money => 'Wages & rights',
-        Ctx.market => 'Market',
-        Ctx.health => 'Health',
-        Ctx.home => 'Where you stay',
-      };
+    Ctx.work => 'On site',
+    Ctx.money => 'Wages & rights',
+    Ctx.market => 'Market',
+    Ctx.health => 'Health',
+    Ctx.home => 'Where you stay',
+  };
   IconData get icon => switch (this) {
-        Ctx.work => Icons.engineering_rounded,
-        Ctx.money => Icons.payments_rounded,
-        Ctx.market => Icons.shopping_basket_rounded,
-        Ctx.health => Icons.local_hospital_rounded,
-        Ctx.home => Icons.home_work_rounded,
-      };
+    Ctx.work => Icons.engineering_rounded,
+    Ctx.money => Icons.payments_rounded,
+    Ctx.market => Icons.shopping_basket_rounded,
+    Ctx.health => Icons.local_hospital_rounded,
+    Ctx.home => Icons.home_work_rounded,
+  };
 }
 
 class Situation {
-  final String title;      // what you will be doing, in plain words
-  final String native;     // the same, in the target language
+  final String title; // what you will be doing, in plain words
+  final String native; // the same, in the target language
   final Ctx ctx;
   final int phrases;
-  final double readiness;  // 0..1 — coverage, never a score
-  final bool urgent;       // surfaced because it is likely needed this week
+  final double readiness; // 0..1 — coverage, never a score
+  final bool urgent; // surfaced because it is likely needed this week
   final List<Exercise> exercises;
 
   const Situation({
@@ -144,7 +150,12 @@ final situations = <Situation>[
         prompt: 'What does this mean?',
         marathi: 'मला मदत हवी आहे',
         roman: 'malā madat havī āhe',
-        options: ['I am going home', 'I need help', 'I am very tired', 'I do not want this'],
+        options: [
+          'I am going home',
+          'I need help',
+          'I am very tired',
+          'I do not want this',
+        ],
         answer: 1,
       ),
       // 2. Say it back. Four words.
@@ -180,7 +191,12 @@ final situations = <Situation>[
         prompt: 'What does this mean?',
         marathi: 'पगार कधी मिळेल',
         roman: 'pagār kadhī miḷel',
-        options: ['How much is the pay?', 'Where is the office?', 'When will I be paid?', 'Who is the supervisor?'],
+        options: [
+          'How much is the pay?',
+          'Where is the office?',
+          'When will I be paid?',
+          'Who is the supervisor?',
+        ],
         answer: 2,
       ),
       // 6. Three words.
@@ -228,7 +244,12 @@ final situations = <Situation>[
         prompt: 'What does this mean?',
         marathi: 'तुमचं नाव काय आहे?',
         roman: 'tumcha nāv kāy āhe?',
-        options: ['Where do you live?', 'What is your name?', 'How are you?', 'Where are you from?'],
+        options: [
+          'Where do you live?',
+          'What is your name?',
+          'How are you?',
+          'Where are you from?',
+        ],
         answer: 1,
       ),
     ],
@@ -289,7 +310,12 @@ final situations = <Situation>[
         prompt: 'What does this mean?',
         marathi: 'पगार कधी मिळेल?',
         roman: 'pagār kadhī miḷel?',
-        options: ['How much is the pay?', 'When will I be paid?', 'Where is the office?', 'Who is the boss?'],
+        options: [
+          'How much is the pay?',
+          'When will I be paid?',
+          'Where is the office?',
+          'Who is the boss?',
+        ],
         answer: 1,
       ),
       Exercise(
@@ -327,7 +353,12 @@ final situations = <Situation>[
         prompt: 'What does this mean?',
         marathi: 'हे किती रुपये?',
         roman: 'he kitī rupaye?',
-        options: ['How many are there?', 'How much is this?', 'Is this fresh?', 'Do you have change?'],
+        options: [
+          'How many are there?',
+          'How much is this?',
+          'Is this fresh?',
+          'Do you have change?',
+        ],
         answer: 1,
       ),
       Exercise(
@@ -386,5 +417,12 @@ class Tool {
   final IconData icon;
   final Color tint;
   final bool live;
-  const Tool(this.title, this.native, this.subtitle, this.icon, this.tint, {this.live = false});
+  const Tool(
+    this.title,
+    this.native,
+    this.subtitle,
+    this.icon,
+    this.tint, {
+    this.live = false,
+  });
 }

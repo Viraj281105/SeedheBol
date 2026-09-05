@@ -47,21 +47,35 @@ class Boli {
   static const ui = 'Mukta';
   static const display = 'Baloo2';
 
-  static TextStyle head(double size, {double weight = 700, Color color = ink, double height = 1.15}) =>
-      TextStyle(
-        fontFamily: display,
-        fontSize: size,
-        color: color,
-        height: height,
-        fontVariations: [FontVariation('wght', weight)],
-      );
+  static TextStyle head(
+    double size, {
+    double weight = 700,
+    Color color = ink,
+    double height = 1.15,
+  }) => TextStyle(
+    fontFamily: display,
+    fontSize: size,
+    color: color,
+    height: height,
+    fontVariations: [FontVariation('wght', weight)],
+  );
 
-  static TextStyle body(double size,
-          {FontWeight weight = FontWeight.w500, Color color = ink, double height = 1.4}) =>
-      TextStyle(fontFamily: ui, fontSize: size, color: color, height: height, fontWeight: weight);
+  static TextStyle body(
+    double size, {
+    FontWeight weight = FontWeight.w500,
+    Color color = ink,
+    double height = 1.4,
+  }) => TextStyle(
+    fontFamily: ui,
+    fontSize: size,
+    color: color,
+    height: height,
+    fontWeight: weight,
+  );
 
   /// Small caps label. Used for section headers and metadata.
-  static TextStyle label({Color color = inkSoft, double size = 12}) => TextStyle(
+  static TextStyle label({Color color = inkSoft, double size = 12}) =>
+      TextStyle(
         fontFamily: ui,
         fontSize: size,
         color: color,
@@ -81,15 +95,28 @@ class Boli {
         surface: cream,
         error: madder,
       ),
-      textTheme: base.textTheme.apply(fontFamily: ui, bodyColor: ink, displayColor: ink),
+      textTheme: base.textTheme.apply(
+        fontFamily: ui,
+        bodyColor: ink,
+        displayColor: ink,
+      ),
     );
   }
 
-  static List<BoxShadow> lift({double y = 3, double blur = 10, double o = .10}) => [
-        BoxShadow(color: ink.withValues(alpha: o), offset: Offset(0, y), blurRadius: blur),
-      ];
+  static List<BoxShadow> lift({
+    double y = 3,
+    double blur = 10,
+    double o = .10,
+  }) => [
+    BoxShadow(
+      color: ink.withValues(alpha: o),
+      offset: Offset(0, y),
+      blurRadius: blur,
+    ),
+  ];
 
-  static BoxDecoration card({Color? fill, Color? border, double radius = 18}) => BoxDecoration(
+  static BoxDecoration card({Color? fill, Color? border, double radius = 18}) =>
+      BoxDecoration(
         color: fill ?? paper,
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(color: border ?? sand, width: 2),
@@ -104,14 +131,19 @@ class HandloomBorder extends StatelessWidget {
   final Color color;
   final double height;
   final bool dense;
-  const HandloomBorder({super.key, this.color = Boli.terracotta, this.height = 10, this.dense = false});
+  const HandloomBorder({
+    super.key,
+    this.color = Boli.terracotta,
+    this.height = 10,
+    this.dense = false,
+  });
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        height: height,
-        width: double.infinity,
-        child: CustomPaint(painter: _HandloomPainter(color, dense)),
-      );
+    height: height,
+    width: double.infinity,
+    child: CustomPaint(painter: _HandloomPainter(color, dense)),
+  );
 }
 
 class _HandloomPainter extends CustomPainter {
@@ -130,7 +162,11 @@ class _HandloomPainter extends CustomPainter {
 
     // Two rules with a row of stamps between them.
     canvas.drawLine(Offset(0, .8), Offset(size.width, .8), line);
-    canvas.drawLine(Offset(0, size.height - .8), Offset(size.width, size.height - .8), line);
+    canvas.drawLine(
+      Offset(0, size.height - .8),
+      Offset(size.width, size.height - .8),
+      line,
+    );
 
     final mid = size.height / 2;
     final r = (size.height - 5) / 2;
@@ -151,5 +187,6 @@ class _HandloomPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_HandloomPainter old) => old.color != color || old.dense != dense;
+  bool shouldRepaint(_HandloomPainter old) =>
+      old.color != color || old.dense != dense;
 }

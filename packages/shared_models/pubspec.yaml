@@ -1,0 +1,17 @@
+name: boli_shared_models
+description: >
+  Canonical domain models for Boli: phoneme inventories, situation ASTs,
+  user proficiency profiles, and cryptographic skill attestation schemas.
+  Consumed by all Dart packages and mirrored in Kotlin/Python layers.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  meta: ^1.11.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^3.0.0
