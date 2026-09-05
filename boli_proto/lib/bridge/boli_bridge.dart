@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'models/boli_events.dart';
+export 'models/boli_events.dart';
 
 abstract class IBoliBridge {
   // Streams
@@ -59,6 +60,7 @@ abstract class IBoliBridge {
 
   // Telemetry & Hardware Info
   Future<Map<String, dynamic>> getHardwareTelemetry();
+  Future<Map<String, dynamic>> exportOfficeKitData();
 
   // Learner Memory & Personalization API
   Future<bool> recordWordAttempt({required String word, required bool isCorrect});
@@ -384,6 +386,14 @@ class BoliBridge implements IBoliBridge {
     final result = await _methodChannel.invokeMapMethod<String, dynamic>(
       'analyzeHeardPhrase',
       {'phrase': phrase},
+    );
+    return result ?? const {};
+  }
+
+  @override
+  Future<Map<String, dynamic>> exportOfficeKitData() async {
+    final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+      'exportOfficeKitData',
     );
     return result ?? const {};
   }

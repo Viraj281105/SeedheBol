@@ -132,20 +132,28 @@ class TodayScreen extends StatefulWidget {
 
 class _TodayScreenState extends State<TodayScreen> {
   int _filter = 0;
+  bool _voiceFirstMode = false;
   final _readiness = <String, double>{};
 
   static const _day = 6, _ofDays = 21;
 
+  List<Situation> get _allSituations =>
+      getSituationsFor(l2: widget.l2, job: widget.job);
+
   List<Situation> get _visible {
-    if (_filter == 0) return situations;
+    final list = _allSituations;
+    if (_filter == 0) return list;
     final ctx = Ctx.values[_filter - 1];
-    return situations.where((s) => s.ctx == ctx).toList();
+    return list.where((s) => s.ctx == ctx).toList();
   }
 
   double _read(Situation s) => _readiness[s.title] ?? s.readiness;
 
-  double get _overall =>
-      situations.map(_read).fold(0.0, (a, b) => a + b) / situations.length;
+  double get _overall {
+    final list = _allSituations;
+    if (list.isEmpty) return 0.0;
+    return list.map(_read).fold(0.0, (a, b) => a + b) / list.length;
+  }
 
   Future<void> _open(Situation s) async {
     if (s.exercises.isEmpty) {
@@ -155,7 +163,10 @@ class _TodayScreenState extends State<TodayScreen> {
     final done = await Navigator.of(context).push<double>(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 380),
-        pageBuilder: (_, __, ___) => PracticeScreen(situation: s),
+        pageBuilder: (_, __, ___) => PracticeScreen(
+          situation: s,
+          isVoiceFirst: _voiceFirstMode,
+        ),
         transitionsBuilder: (_, a, __, c) {
           final cu = CurvedAnimation(parent: a, curve: Curves.easeOutCubic);
           return FadeTransition(
@@ -363,6 +374,53 @@ class _TodayScreenState extends State<TodayScreen> {
                         ],
                       ),
                     ),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() => _voiceFirstMode = !_voiceFirstMode);
+                        HapticFeedback.lightImpact();
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 11),
+                        decoration: BoxDecoration(
+                          color: _voiceFirstMode
+                              ? Boli.peacock
+                              : Boli.peacock.withValues(alpha: .10),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: _voiceFirstMode
+                                ? Boli.peacock
+                                : Boli.peacock.withValues(alpha: .3),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _voiceFirstMode
+                                  ? Icons.record_voice_over_rounded
+                                  : Icons.mic_none_rounded,
+                              size: 16,
+                              color:
+                                  _voiceFirstMode ? Boli.cream : Boli.peacock,
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              _voiceFirstMode ? 'ध्वनी ON' : 'ध्वनी',
+                              style: Boli.body(
+                                12,
+                                weight: FontWeight.w800,
+                                color:
+                                    _voiceFirstMode ? Boli.cream : Boli.peacock,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Container(
                       height: 44,
                       padding: const EdgeInsets.symmetric(horizontal: 12),

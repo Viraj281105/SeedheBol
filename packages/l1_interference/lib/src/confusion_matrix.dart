@@ -152,6 +152,77 @@ class CorridorConfusionSet {
     );
   }
 
+  /// Standard Hindi/Bhojpuri -> Marathi corridor confusion set.
+  factory CorridorConfusionSet.hindiMarathi() {
+    return CorridorConfusionSet(
+      corridorId: 'hindi_marathi',
+      sourceLanguage: 'hi',
+      targetLanguage: 'mr',
+      confusionPairs: [
+        const ConfusionPair(
+          targetPhonemeIpa: 'ɭ',
+          targetGrapheme: 'ळ',
+          confusedPhonemeIpa: 'l',
+          confusedGrapheme: 'ल',
+          phenomenon: 'Retroflex lateral approximant de-retroflexion (ळ -> ल)',
+          priorProbability: 0.85,
+          minimalPairs: [
+            MinimalPair(targetPhrase: 'वेळ (Time)', confusedPhrase: 'वेल (Creeper)'),
+            MinimalPair(targetPhrase: 'बाळ (Child)', confusedPhrase: 'बाल (Hair)'),
+            MinimalPair(targetPhrase: 'काळ (Era)', confusedPhrase: 'काल (Yesterday)'),
+          ],
+          articulatoryCueHindi:
+              'जीभ की नोक को पीछे की ओर मोड़कर तालू के पिछले भाग को छुएं और "ळ" बोलें (ल की जगह ळ बोलें)।',
+          articulatoryCueBhojpuri:
+              'जीभ के नोक के पीछे मोड़ के तालू के छूईं आ "ळ" बोलीं (ल के जगह ळ)।',
+          articulatoryCueEn:
+              'Curl the tip of your tongue backwards against the hard palate to pronounce "ळ" (/ɭ/) instead of "ल" (/l/).',
+        ),
+        const ConfusionPair(
+          targetPhonemeIpa: 'ʈ',
+          targetGrapheme: 'ट',
+          confusedPhonemeIpa: 't̪',
+          confusedGrapheme: 'त',
+          phenomenon: 'Retroflex to dental stop replacement (ट -> त)',
+          priorProbability: 0.40,
+          minimalPairs: [],
+          articulatoryCueHindi:
+              'जीभ की नोक को दांतों से दूर रखकर तालू पर मारें।',
+          articulatoryCueBhojpuri:
+              'जीभ के नोक के दांत से दूर रख के तालू पर मारीं।',
+          articulatoryCueEn:
+              'Keep the tip of your tongue away from teeth and strike the hard palate for retroflex ट.',
+        ),
+      ],
+    );
+  }
+
+  /// Standard Bhojpuri/Hindi -> Tamil corridor confusion set.
+  factory CorridorConfusionSet.bhojpuriTamil() {
+    return CorridorConfusionSet(
+      corridorId: 'bhojpuri_tamil',
+      sourceLanguage: 'bhojpuri',
+      targetLanguage: 'ta',
+      confusionPairs: [
+        const ConfusionPair(
+          targetPhonemeIpa: 'ɻ',
+          targetGrapheme: 'ழ',
+          confusedPhonemeIpa: 'l',
+          confusedGrapheme: 'ल',
+          phenomenon: 'Tamil retroflex approximant replacement (ழ -> ल/र)',
+          priorProbability: 0.90,
+          minimalPairs: [],
+          articulatoryCueHindi:
+              'जीभ को बिना छुए तालू की ओर मोड़ें और "ழ" (zha) ध्वनि निकालें।',
+          articulatoryCueBhojpuri:
+              'जीभ के बिना छुअवले तालू के ओर मोड़ीं आ "ழ" ध्वनि निकालीं।',
+          articulatoryCueEn:
+              'Curl your tongue tip toward the palate without touching to pronounce the retroflex approximant ழ (zha).',
+        ),
+      ],
+    );
+  }
+
   Map<String, dynamic> toJson() => {
         'corridor_id': corridorId,
         'source_language': sourceLanguage,

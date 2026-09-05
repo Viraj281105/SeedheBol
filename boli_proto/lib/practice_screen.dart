@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'bridge/boli_bridge.dart';
+import 'bridge/phonetic_diagnostics.dart';
 import 'data.dart';
 import 'success_screen.dart';
 import 'theme.dart';
@@ -14,7 +15,12 @@ import 'widgets.dart';
 /// with three weeks cannot be sent back to the start of a unit.
 class PracticeScreen extends StatefulWidget {
   final Situation situation;
-  const PracticeScreen({super.key, required this.situation});
+  final bool isVoiceFirst;
+  const PracticeScreen({
+    super.key,
+    required this.situation,
+    this.isVoiceFirst = false,
+  });
 
   @override
   State<PracticeScreen> createState() => _PracticeScreenState();
@@ -26,11 +32,23 @@ class _PracticeScreenState extends State<PracticeScreen> {
   bool? _correct;
   String _note = '';
   bool _done = false;
+  late bool _voiceFirst;
   final List<String> _review = [];
   final List<String> _learned = [];
   final DateTime _startedAt = DateTime.now();
 
   Exercise get _ex => widget.situation.exercises[_i];
+
+  @override
+  void initState() {
+    super.initState();
+    _voiceFirst = widget.isVoiceFirst;
+    if (_voiceFirst && _ex.marathi.isNotEmpty) {
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) PhraseAudio.play(_ex.marathi);
+      });
+    }
+  }
 
   void _grade(bool ok, {String note = ''}) {
     setState(() {
@@ -69,6 +87,11 @@ class _PracticeScreenState extends State<PracticeScreen> {
       _correct = null;
       _note = '';
     });
+    if (_voiceFirst && _ex.marathi.isNotEmpty) {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) PhraseAudio.play(_ex.marathi);
+      });
+    }
   }
 
   @override
@@ -120,6 +143,48 @@ class _PracticeScreenState extends State<PracticeScreen> {
                           style: Boli.body(13, color: Boli.inkSoft),
                         ),
                       ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => _voiceFirst = !_voiceFirst);
+                      HapticFeedback.lightImpact();
+                      if (_voiceFirst && _ex.marathi.isNotEmpty) {
+                        PhraseAudio.play(_ex.marathi);
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _voiceFirst
+                            ? Boli.peacock
+                            : Boli.peacock.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _voiceFirst
+                                ? Icons.volume_up_rounded
+                                : Icons.volume_mute_rounded,
+                            size: 16,
+                            color: _voiceFirst ? Boli.cream : Boli.peacock,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _voiceFirst ? 'ध्वनी ON' : 'ध्वनी',
+                            style: Boli.body(
+                              12,
+                              weight: FontWeight.w700,
+                              color: _voiceFirst ? Boli.cream : Boli.peacock,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -203,11 +268,24 @@ class _PracticeScreenState extends State<PracticeScreen> {
 
 class _Instruction extends StatelessWidget {
   final String text;
-  const _Instruction(this.text);
+  final String? subtext;
+  const _Instruction(this.text, {this.subtext});
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
-    child: Text(text, style: Boli.head(23, weight: 700)),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(text, style: Boli.head(23, weight: 700)),
+        if (subtext != null && subtext!.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(
+            subtext!,
+            style: Boli.body(14.5, color: Boli.inkSoft, weight: FontWeight.w600),
+          ),
+        ],
+      ],
+    ),
   );
 }
 
@@ -225,13 +303,14 @@ class PhraseAudio {
 }
 
 class _Phrase extends StatefulWidget {
-  final String marathi, roman, english;
+  final String marathi, devanagariPhonetic, roman, english;
 
   /// Speak the phrase as soon as it appears. Asking someone to pronounce a
   /// word they have never heard is the bug this exists to fix.
   final bool autoPlay;
   const _Phrase({
     required this.marathi,
+    this.devanagariPhonetic = '',
     this.roman = '',
     this.english = '',
     this.autoPlay = false,
@@ -267,6 +346,7 @@ class _PhraseState extends State<_Phrase> {
   }
 
   String get marathi => widget.marathi;
+  String get devanagariPhonetic => widget.devanagariPhonetic;
   String get roman => widget.roman;
   String get english => widget.english;
 
@@ -290,6 +370,28 @@ class _PhraseState extends State<_Phrase> {
                 textAlign: TextAlign.center,
                 style: Boli.head(36, weight: 600, height: 1.3),
               ),
+              if (devanagariPhonetic.isNotEmpty && devanagariPhonetic != marathi) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Boli.marigold.withValues(alpha: .16),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Boli.marigold.withValues(alpha: .45)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.record_voice_over_rounded, size: 15, color: Boli.ink),
+                      const SizedBox(width: 6),
+                      Text(
+                        'उच्चार: $devanagariPhonetic',
+                        style: Boli.head(17, weight: 700, color: Boli.ink),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               if (roman.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Text(
@@ -384,8 +486,17 @@ class _ChoiceState extends State<_Choice> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _Instruction(widget.ex.prompt),
-      _Phrase(marathi: widget.ex.marathi, roman: widget.ex.roman),
+      _Instruction(
+        widget.ex.prompt,
+        subtext: widget.ex.promptL1.isNotEmpty
+            ? widget.ex.promptL1
+            : 'याचा अर्थ काय? (Choose meaning)',
+      ),
+      _Phrase(
+        marathi: widget.ex.marathi,
+        devanagariPhonetic: widget.ex.devanagariPhonetic,
+        roman: widget.ex.roman,
+      ),
       const SizedBox(height: 22),
       for (int i = 0; i < widget.ex.options.length; i++)
         Padding(
@@ -481,6 +592,7 @@ class _SpeakState extends State<_Speak> {
   String _heard = '';
   String _error = '';
   double _score = 0;
+  PhoneticDiagnosticResult? _diagnostic;
 
   double _similarity(String a, String b) {
     String norm(String s) => s.replaceAll(RegExp(r'[\s।,.?!]'), '');
@@ -513,6 +625,7 @@ class _SpeakState extends State<_Speak> {
       _busy = true;
       _heard = '';
       _error = '';
+      _diagnostic = null;
     });
     try {
       final text =
@@ -521,10 +634,21 @@ class _SpeakState extends State<_Speak> {
           }) ??
           '';
       if (!mounted) return;
-      final s = _similarity(text, widget.ex.marathi);
+
+      // Run computational phonetics & L1 interference diagnosis
+      final diag = PhoneticDiagnosticService.analyze(
+        targetText: widget.ex.marathi,
+        heardText: text,
+        targetLang: 'mr',
+        nativeLang: 'hi',
+      );
+      final rawSim = _similarity(text, widget.ex.marathi);
+      final s = diag.score > 0 ? (diag.score * 0.5 + rawSim * 0.5) : rawSim;
+
       setState(() {
         _heard = text.isEmpty ? '—' : text;
         _score = s;
+        _diagnostic = diag;
         _busy = false;
       });
 
@@ -533,6 +657,7 @@ class _SpeakState extends State<_Speak> {
         BoliBridge.instance.recordPronunciationWeakness(
           word: widget.ex.marathi,
           score: s,
+          phoneme: diag.weakPhonemes.isNotEmpty ? diag.weakPhonemes.first : null,
         );
       }
 
@@ -550,9 +675,15 @@ class _SpeakState extends State<_Speak> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _Instruction(widget.ex.prompt),
+      _Instruction(
+        widget.ex.prompt,
+        subtext: widget.ex.promptL1.isNotEmpty
+            ? widget.ex.promptL1
+            : 'मोठ्याने बोला (माइक दाबा आणि बोला)',
+      ),
       _Phrase(
         marathi: widget.ex.marathi,
+        devanagariPhonetic: widget.ex.devanagariPhonetic,
         roman: widget.ex.roman,
         english: widget.ex.english,
         autoPlay: true,
@@ -564,37 +695,46 @@ class _SpeakState extends State<_Speak> {
           onTap: (_busy || widget.locked) ? null : _listen,
         ),
       ),
+      const SizedBox(height: 8),
       Center(
         child: Text(
           _busy
-              ? 'Listening…'
-              : (_error.isNotEmpty ? _error : 'Tap, then say it'),
+              ? 'Listening… ऐकत आहे…'
+              : (_error.isNotEmpty ? _error : 'माइक दाबा आणि बोला · Tap & Speak'),
           style: Boli.body(15, weight: FontWeight.w700, color: Boli.inkSoft),
         ),
       ),
       if (_heard.isNotEmpty) ...[
         const SizedBox(height: 20),
-        _HeardPanel(heard: _heard, score: _score, target: widget.ex.marathi),
+        _HeardPanel(
+          heard: _heard,
+          score: _score,
+          target: widget.ex.marathi,
+          diagnostic: _diagnostic,
+        ),
       ],
     ],
   );
 }
 
-/// Shows what the device heard, and where it diverged. The per-character
-/// comparison stands in for the phoneme-level GOP scoring the real build does
-/// off the CTC posteriorgram.
+/// Shows what the device heard, phonemic IPA transcription, and targeted
+/// L1 articulatory guidance from on-device confusion matrices.
 class _HeardPanel extends StatelessWidget {
   final String heard, target;
   final double score;
+  final PhoneticDiagnosticResult? diagnostic;
+
   const _HeardPanel({
     required this.heard,
     required this.score,
     required this.target,
+    this.diagnostic,
   });
 
   @override
   Widget build(BuildContext context) {
     final ok = score >= .55;
+    final diag = diagnostic;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: Boli.card(fill: Boli.cream),
@@ -618,7 +758,66 @@ class _HeardPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Text(heard, style: Boli.head(26, weight: 600)),
+          Row(
+            children: [
+              Expanded(
+                child: Text(heard, style: Boli.head(24, weight: 600)),
+              ),
+              if (diag != null && diag.heardIpa.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Boli.sand.withValues(alpha: .5),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '/${diag.heardIpa}/',
+                    style: Boli.label(size: 11, color: Boli.inkSoft),
+                  ),
+                ),
+            ],
+          ),
+
+          // L1-Interference Articulatory Diagnostic Card
+          if (diag != null && diag.hasL1Interference) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Boli.terracotta.withValues(alpha: .08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Boli.terracotta.withValues(alpha: .35)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.record_voice_over_rounded, size: 16, color: Boli.terracotta),
+                      const SizedBox(width: 6),
+                      Text(
+                        'L1 INTERFERENCE DETECTED · उच्चार सुधारणा',
+                        style: Boli.label(size: 10.5, color: Boli.terracotta),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    diag.articulatoryAdvice!,
+                    style: Boli.body(13.5, weight: FontWeight.w700, color: Boli.ink),
+                  ),
+                  if (diag.phenomenon != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      diag.phenomenon!,
+                      style: Boli.label(size: 10, color: Boli.inkSoft),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+
           if (!ok) ...[
             const SizedBox(height: 12),
             HandloomBorder(color: Boli.sand, height: 8, dense: true),
@@ -680,7 +879,12 @@ class _BuildState extends State<_Build> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _Instruction(widget.ex.prompt),
+      _Instruction(
+        widget.ex.prompt,
+        subtext: widget.ex.promptL1.isNotEmpty
+            ? widget.ex.promptL1
+            : 'वाक्य बनवा (Build the sentence)',
+      ),
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
@@ -900,7 +1104,12 @@ class _MatchState extends State<_Match> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _Instruction(widget.ex.prompt),
+      _Instruction(
+        widget.ex.prompt,
+        subtext: widget.ex.promptL1.isNotEmpty
+            ? widget.ex.promptL1
+            : 'जोड्या लावा (Match the pairs)',
+      ),
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

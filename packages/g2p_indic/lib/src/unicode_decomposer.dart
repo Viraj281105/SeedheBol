@@ -70,6 +70,7 @@ class DevanagariDecomposer {
     0x092F: 'j', // य
     0x0930: 'ɾ', // र
     0x0932: 'l', // ल
+    0x0933: 'ɭ', // ळ (Marathi/Sanskrit retroflex lateral approximant)
     0x0935: 'ʋ', // व
     0x0936: 'ʃ', // श
     0x0937: 'ʂ', // ष

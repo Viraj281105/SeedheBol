@@ -71,7 +71,7 @@ class G2PEngine {
         _tamilProcessor = TamilAllophoneProcessor();
 
   /// Supported language codes.
-  static const Set<String> supportedLanguages = {'hi', 'ta'};
+  static const Set<String> supportedLanguages = {'hi', 'mr', 'ta'};
 
   /// Convert Unicode text to IPA phoneme sequence.
   ///
@@ -91,6 +91,7 @@ class G2PEngine {
 
     switch (languageCode) {
       case 'hi':
+      case 'mr':
         return _convertHindi(text);
       case 'ta':
         return _convertTamil(text);
