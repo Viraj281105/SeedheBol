@@ -104,6 +104,7 @@ data class DialogueTurn(
     val hint: String = "",
     val betterWay: String = "",
     val feedback: String = "",
+    val fluencyScore: Int? = null,
 )
 
 /**

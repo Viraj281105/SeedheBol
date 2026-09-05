@@ -58,6 +58,7 @@ class OnnxAsr(private val context: Context) {
             qnnOpts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             val qnnConfig = mutableMapOf<String, String>(
                 "backend_path" to "libQnnHtp.so",
+                "htp_arch" to "79",
                 "htp_performance_mode" to "high_performance",
                 "enable_htp_fp16_precision" to "1",
             )

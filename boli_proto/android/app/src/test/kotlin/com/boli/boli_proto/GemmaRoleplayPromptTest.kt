@@ -1,0 +1,154 @@
+package com.boli.boli_proto
+
+import org.junit.Assert.*
+import org.junit.Test
+
+class GemmaRoleplayPromptTest {
+
+    @Test
+    fun testRoleplayOpenerPromptContainsFewShotExemplars() {
+        val ctx = GemmaContext(
+            l1 = "Hindi",
+            l2 = "Marathi",
+            occupation = "construction worker",
+            userLevel = "beginner"
+        )
+        val prompt = GemmaPromptBuilder.buildRoleplayOpenerPrompt(
+            persona = "Site Supervisor",
+            scenario = "Morning shift check-in",
+            ctx = ctx
+        )
+
+        // Must contain in-context few-shot example for Marathi
+        assertTrue("Prompt must include Marathi exemplar", prompt.contains("अरे भावा, आजचे काम वेळेवर सुरू झाले का?"))
+        assertTrue("Prompt must include Hindi translation exemplar", prompt.contains("अरे भाई, आज का काम समय पर शुरू हुआ क्या?"))
+        // Must contain strict single sentence directive
+        assertTrue("Prompt must restrict length to 1 sentence", prompt.contains("EXACTLY ONE short spoken sentence"))
+        // Must enforce language separation
+        assertTrue("Prompt must enforce authentic target language", prompt.contains("Output ONLY authentic Marathi in L2"))
+    }
+
+    @Test
+    fun testRoleplayNextTurnPromptContainsStructuredTagsAndExemplar() {
+        val ctx = GemmaContext(
+            l1 = "Hindi",
+            l2 = "Marathi",
+            occupation = "construction worker",
+            userLevel = "beginner"
+        )
+        val history = listOf(
+            DialogueTurn("bot", "अरे भावा, आजचे काम वेळेवर सुरू झाले का?"),
+            DialogueTurn("user", "होय साहेब, सुरू झाले आहे.")
+        )
+        val prompt = GemmaPromptBuilder.buildRoleplayNextTurnPrompt(history, ctx)
+
+        // Must include example format tags
+        assertTrue("Prompt must show Learner example", prompt.contains("Learner: पाणी कुठे आहे?"))
+        assertTrue("Prompt must show L2 tag in example", prompt.contains("L2: तिथे पाण्याच्या टाकीजवळ जा"))
+        assertTrue("Prompt must show BETTER tag in example", prompt.contains("BETTER: पिण्याचे पाणी कुठे मिळेल साहेब?"))
+        assertTrue("Prompt must show FEEDBACK tag in example", prompt.contains("FEEDBACK: तुम्ही पाणी विचारले"))
+        assertTrue("Prompt must show HINT tag in example", prompt.contains("HINT: पाणी उच्चारताना"))
+        // Must contain history
+        assertTrue("Prompt must contain recent user utterance", prompt.contains("होय साहेब, सुरू झाले आहे."))
+    }
+
+    @Test
+    fun testSanitizerDetectsAndDeduplicatesIntraSentenceRepetition() {
+        val deviceGlitchText = "आजो, आपका नाम क्या है? और आपका नाम क्या है?"
+
+        assertTrue(
+            "Sanitizer must detect intra-sentence clause repetition",
+            LlmOutputSanitizer.hasDuplicateClauses(deviceGlitchText)
+        )
+        assertTrue(
+            "Sanitizer must treat intra-sentence loop as degenerative repetition",
+            LlmOutputSanitizer.hasDegenerativeRepetition(deviceGlitchText)
+        )
+
+        val deduplicated = LlmOutputSanitizer.deduplicateClauses(deviceGlitchText)
+        assertFalse(
+            "Deduplicated text must not have duplicate clauses",
+            LlmOutputSanitizer.hasDuplicateClauses(deduplicated)
+        )
+        assertTrue(
+            "Deduplicated text must retain single clause",
+            deduplicated.contains("आपका नाम क्या है?")
+        )
+    }
+
+    @Test
+    fun testSanitizerStripsBracketPlaceholders() {
+        val deviceGlitchL1 = "मराठी में आपका नाम '[your name]' है और आपका काम '[job]' है"
+        val stripped = LlmOutputSanitizer.stripPlaceholders(deviceGlitchL1)
+
+        assertFalse("Placeholders '[your name]' must be stripped", stripped.contains("[your name]"))
+        assertFalse("Placeholders '[job]' must be stripped", stripped.contains("[job]"))
+        assertFalse("Quotes should be stripped", stripped.contains("'"))
+        assertEquals("मराठी में आपका नाम है और आपका काम है", stripped)
+    }
+
+    @Test
+    fun testSanitizerRejectsHindiIntrusionWhenTargetIsMarathi() {
+        val pureHindiSentence = "आजो, आपका नाम क्या है?"
+        val authenticMarathiSentence = "अरे भावा, आजचे काम कसे चालले आहे?"
+        val marathiWithQuestion = "पाणी कुठे मिळेल साहेब?"
+
+        // Hindi intrusion check
+        assertTrue(
+            "Hindi sentence must be flagged as Hindi intrusion for Marathi",
+            LlmOutputSanitizer.isHindiIntrusionForMarathi(pureHindiSentence)
+        )
+        assertFalse(
+            "Authentic Marathi sentence must NOT be flagged as Hindi intrusion",
+            LlmOutputSanitizer.isHindiIntrusionForMarathi(authenticMarathiSentence)
+        )
+        assertFalse(
+            "Marathi inquiry must NOT be flagged as Hindi intrusion",
+            LlmOutputSanitizer.isHindiIntrusionForMarathi(marathiWithQuestion)
+        )
+
+        // isValidL2Output checks
+        assertFalse(
+            "Pure Hindi sentence must be REJECTED when target is Marathi (mr)",
+            LlmOutputSanitizer.isValidL2Output(pureHindiSentence, "mr")
+        )
+        assertTrue(
+            "Pure Hindi sentence is VALID when target is Hindi (hi)",
+            LlmOutputSanitizer.isValidL2Output(pureHindiSentence, "hi")
+        )
+        assertTrue(
+            "Authentic Marathi sentence must PASS for Marathi (mr)",
+            LlmOutputSanitizer.isValidL2Output(authenticMarathiSentence, "mr")
+        )
+    }
+
+    @Test
+    fun testTamilTeluguFewShotPromptsAreWellFormed() {
+        val tamilCtx = GemmaContext(l1 = "Hindi", l2 = "Tamil", occupation = "delivery partner", userLevel = "beginner")
+        val tamilPrompt = GemmaPromptBuilder.buildRoleplayOpenerPrompt("Customer", "Delivery address", tamilCtx)
+        assertTrue("Tamil opener prompt must contain Tamil exemplar", tamilPrompt.contains("வணக்கம் தோழா"))
+
+        val teluguCtx = GemmaContext(l1 = "Hindi", l2 = "Telugu", occupation = "delivery partner", userLevel = "beginner")
+        val teluguPrompt = GemmaPromptBuilder.buildRoleplayOpenerPrompt("Customer", "Delivery address", teluguCtx)
+        assertTrue("Telugu opener prompt must contain Telugu exemplar", teluguPrompt.contains("నమస్తే భయ్యా"))
+    }
+
+    @Test
+    fun testTurnProgressionAndFluencyPrompt() {
+        val ctx = GemmaContext(l1 = "Hindi", l2 = "Marathi", occupation = "construction worker", userLevel = "beginner")
+        val history = listOf(
+            DialogueTurn("bot", "अरे भावा, आजचे काम वेळेवर सुरू झाले का?"),
+            DialogueTurn("user", "होय साहेब, सुरू झाले आहे.")
+        )
+
+        // Turn 3 of 5 prompt
+        val turn3Prompt = GemmaPromptBuilder.buildRoleplayNextTurnPrompt(history, ctx, turnNumber = 3, maxTurns = 5)
+        assertTrue("Must include turn progression marker", turn3Prompt.contains("SESSION PROGRESS: Turn 3 of 5"))
+        assertTrue("Must request FLUENCY score tag", turn3Prompt.contains("FLUENCY: Score from 0 to 100"))
+        assertTrue("Must mandate direct reply to learner", turn3Prompt.contains("Directly answer or address what the Learner said"))
+
+        // Final turn prompt (Turn 5 of 5)
+        val finalTurnPrompt = GemmaPromptBuilder.buildRoleplayNextTurnPrompt(history, ctx, turnNumber = 5, maxTurns = 5)
+        assertTrue("Final turn must instruct model to conclude naturally", finalTurnPrompt.contains("FINAL TURN: Conclude the conversation"))
+    }
+}

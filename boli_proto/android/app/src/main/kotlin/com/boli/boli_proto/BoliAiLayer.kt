@@ -283,18 +283,25 @@ class BoliAiLayer(
         currentNodeId: String,
         userSpokenText: String,
         ctx: GemmaContext,
+        turnNumber: Int = 1,
+        maxTurns: Int = 5,
     ): Map<String, Any?> {
         val t0 = System.currentTimeMillis()
         val historyWithUser = history + DialogueTurn("user", userSpokenText)
 
         if (gemma.isAvailable) {
-            val prompt = GemmaPromptBuilder.buildRoleplayNextTurnPrompt(historyWithUser, ctx)
+            val prompt = GemmaPromptBuilder.buildRoleplayNextTurnPrompt(
+                history = historyWithUser,
+                ctx = ctx,
+                turnNumber = turnNumber,
+                maxTurns = maxTurns,
+            )
             val raw = gemma.generate(prompt, temperature = GemmaEngine.ROLEPLAY_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
-                val turn = parseRoleplayResponse(raw, ctx)
+                val turn = parseRoleplayResponse(raw, ctx, userSpokenText)
                 if (turn != null && LlmOutputSanitizer.isValidL2Output(turn.text, ctx.l2)) {
                     val ms = System.currentTimeMillis() - t0
-                    Log.i(TAG, "Gemma roleplay turn in ${ms}ms")
+                    Log.i(TAG, "Gemma roleplay turn in ${ms}ms with fluency ${turn.fluencyScore}")
                     return mapOf(
                         "recognized_transcript" to userSpokenText,
                         "is_intent_matched" to true,
@@ -305,6 +312,7 @@ class BoliAiLayer(
                         "prompt_l1" to turn.l1Text,
                         "pre_rendered_audio_path" to null,
                         "pronunciation_score" to null,
+                        "fluency_score" to turn.fluencyScore,
                         "weak_phonemes" to emptyList<String>(),
                         "articulatory_hint" to turn.hint,
                         "natural_phrasing" to turn.betterWay,
@@ -317,8 +325,10 @@ class BoliAiLayer(
                 }
             }
         }
-        // Fallback: preserve original stub response
-        return deterministic.nextRoleplayTurn(historyWithUser, situationId, currentNodeId, ctx)
+        // Fallback: preserve original stub response with calculated heuristic fluency
+        val fallbackResult = deterministic.nextRoleplayTurn(historyWithUser, situationId, currentNodeId, ctx).toMutableMap()
+        fallbackResult["fluency_score"] = calculateHeuristicFluency(userSpokenText, ctx.l2)
+        return fallbackResult
     }
 
     /**
@@ -333,21 +343,95 @@ class BoliAiLayer(
         ctx: GemmaContext,
         fallbackL2: String,
         fallbackL1: String,
+        scenarioAngle: String? = null,
     ): Pair<String, String> {
         if (gemma.isAvailable) {
-            val prompt = GemmaPromptBuilder.buildRoleplayOpenerPrompt(persona, scenario, ctx)
+            val angle = scenarioAngle ?: pickRandomAngleForPersona(persona)
+            val prompt = GemmaPromptBuilder.buildRoleplayOpenerPrompt(persona, scenario, ctx, scenarioAngle = angle)
             val raw = gemma.generate(prompt, temperature = GemmaEngine.ROLEPLAY_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
-                val l2 = findTagValue(lines, "L2") ?: ""
-                val l1 = findTagValue(lines, "L1") ?: ""
-                if (l2.isNotBlank() && LlmOutputSanitizer.isValidL2Output(l2, ctx.l2)) {
-                    Log.i(TAG, "Gemma roleplay opener: $l2")
-                    return Pair(l2, l1.ifBlank { fallbackL1 })
+                val l2Raw = findTagValue(lines, "L2") ?: ""
+                val l1Raw = findTagValue(lines, "L1") ?: ""
+                val l2Clean = LlmOutputSanitizer.sanitize(l2Raw)?.trim() ?: ""
+                val l1Clean = LlmOutputSanitizer.stripPlaceholders(l1Raw).trim()
+
+                if (l2Clean.isNotBlank() && LlmOutputSanitizer.isValidL2Output(l2Clean, ctx.l2)) {
+                    Log.i(TAG, "Gemma roleplay opener (angle '$angle'): $l2Clean")
+                    return Pair(l2Clean, l1Clean.ifBlank { fallbackL1 })
+                } else {
+                    Log.w(TAG, "Gemma roleplay opener rejected by validation: '$l2Clean' (raw: '$l2Raw')")
                 }
             }
         }
         return Pair(fallbackL2, fallbackL1)
+    }
+
+    private fun pickRandomAngleForPersona(persona: String): String {
+        val p = persona.lowercase()
+        return when {
+            p.contains("supervisor") -> listOf(
+                "Checking current work progress on site",
+                "Asking about required materials and tools",
+                "Inquiring if safety gear and helmet are ready",
+                "Assigning an urgent task before the lunch bell",
+                "Asking about team attendance for the day"
+            ).random()
+            p.contains("shopkeeper") || p.contains("shop") -> listOf(
+                "Asking for exact change or coins",
+                "Checking item quantity needed",
+                "Asking whether payment will be cash or online UPI",
+                "Inquiring if they need a carrying bag",
+                "Explaining an item is out of stock and asking about an alternative"
+            ).random()
+            p.contains("guard") || p.contains("watchman") || p.contains("security") -> listOf(
+                "Asking for entry pass or company ID card",
+                "Asking for visitor name and contact in gate register",
+                "Checking safety helmet before entering site gate",
+                "Inquiring which building or floor the visitor wants to reach",
+                "Checking delivery material invoice at the gate"
+            ).random()
+            p.contains("coworker") || p.contains("worker") || p.contains("peer") -> listOf(
+                "Asking to go together for tea during break",
+                "Borrowing a measuring tape or tool for 5 minutes",
+                "Asking for help lifting a heavy material box",
+                "Checking when the afternoon shift ends today",
+                "Inquiring if they have completed their portion of work"
+            ).random()
+            else -> "Starting morning workplace conversation"
+        }
+    }
+
+    private fun calculateHeuristicFluency(userSpokenText: String, l2: String): Int {
+        val words = userSpokenText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (words.isEmpty()) return 50
+
+        var score = 75
+        // Reward natural length (3 to 10 words)
+        when (words.size) {
+            1 -> score -= 15
+            2 -> score -= 5
+            in 3..7 -> score += 10
+            in 8..15 -> score += 12
+            else -> score += 5
+        }
+
+        // Script correctness bonus
+        if (LlmOutputSanitizer.matchesScript(userSpokenText, l2)) {
+            score += 10
+        }
+
+        // Colloquial or polite marker bonus
+        val lower = userSpokenText.lowercase()
+        if (lower.contains("साहेब") || lower.contains("भावा") || lower.contains("होय") ||
+            lower.contains("नाही") || lower.contains("नमस्ते") || lower.contains("धन्यवाद") ||
+            lower.contains("ஐயா") || lower.contains("நன்றி") || lower.contains("సార్") ||
+            lower.contains("అవును") || lower.contains("జీ") || lower.contains("हाँ")
+        ) {
+            score += 5
+        }
+
+        return score.coerceIn(40, 98)
     }
 
     data class SpokenIntentResult(
@@ -718,29 +802,42 @@ class BoliAiLayer(
      *   FEEDBACK: <feedback on learner's utterance>
      *   HINT: <pronunciation tip or "none">
      */
-    private fun parseRoleplayResponse(raw: String, ctx: GemmaContext): DialogueTurn? {
+    private fun parseRoleplayResponse(raw: String, ctx: GemmaContext, userSpokenText: String = ""): DialogueTurn? {
         val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
-        var l2Text = findTagValue(lines, "L2|REPLY|RESPONSE") ?: cleanLine(raw.lines().firstOrNull() ?: "").take(100)
-        if (l2Text.isBlank()) return null
+        var l2Raw = findTagValue(lines, "L2|REPLY|RESPONSE") ?: cleanLine(raw.lines().firstOrNull() ?: "").take(120)
+        l2Raw = LlmOutputSanitizer.stripPlaceholders(l2Raw)
+        if (l2Raw.isBlank()) return null
+
+        var l2Text = LlmOutputSanitizer.sanitize(l2Raw) ?: l2Raw
         if (LlmOutputSanitizer.hasDegenerativeRepetition(l2Text)) {
-            val sanitized = LlmOutputSanitizer.sanitize(l2Text)
-            if (sanitized != null && sanitized.length >= 4) {
-                l2Text = sanitized
-            } else {
-                Log.w(TAG, "Gemma roleplay response rejected due to repetition: '$l2Text'")
-                return null
-            }
+            Log.w(TAG, "Gemma roleplay response rejected due to repetition: '$l2Text'")
+            return null
         }
         if (!LlmOutputSanitizer.matchesScript(l2Text, ctx.l2)) {
             Log.w(TAG, "Gemma roleplay response script mismatch for ${ctx.l2}: '$l2Text'")
             return null
         }
+        val isMarathi = ctx.l2.lowercase().startsWith("mr") || ctx.l2.lowercase().contains("marathi")
+        if (isMarathi && LlmOutputSanitizer.isHindiIntrusionForMarathi(l2Text)) {
+            Log.w(TAG, "Gemma roleplay response rejected due to Hindi intrusion on Marathi: '$l2Text'")
+            return null
+        }
 
-        val l1Text = findTagValue(lines, "L1|TRANSLATION") ?: ""
-        val betterWay = findTagValue(lines, "BETTER|NATURAL|POLISH") ?: ""
-        val feedback = findTagValue(lines, "FEEDBACK|DIAGNOSTIC|NOTE") ?: ""
+        val l1Raw = findTagValue(lines, "L1|TRANSLATION") ?: ""
+        val l1Text = LlmOutputSanitizer.stripPlaceholders(l1Raw)
+
+        val fluencyRaw = findTagValue(lines, "FLUENCY|SCORE|RATING")
+        val parsedFluency = fluencyRaw?.filter { it.isDigit() }?.toIntOrNull()
+        val fluencyScore = (parsedFluency ?: calculateHeuristicFluency(userSpokenText, ctx.l2)).coerceIn(0, 100)
+
+        val betterRaw = findTagValue(lines, "BETTER|NATURAL|POLISH") ?: ""
+        val betterWay = LlmOutputSanitizer.stripPlaceholders(betterRaw)
+
+        val feedbackRaw = findTagValue(lines, "FEEDBACK|DIAGNOSTIC|NOTE") ?: ""
+        val feedback = LlmOutputSanitizer.stripPlaceholders(feedbackRaw)
+
         val hintRaw = findTagValue(lines, "HINT|TIP|PRONUNCIATION") ?: ""
-        val hint = if (hintRaw.equals("none", ignoreCase = true)) "" else hintRaw
+        val hint = if (hintRaw.equals("none", ignoreCase = true)) "" else LlmOutputSanitizer.stripPlaceholders(hintRaw)
 
         return DialogueTurn(
             speaker = "bot",
@@ -749,6 +846,7 @@ class BoliAiLayer(
             hint = hint,
             betterWay = betterWay,
             feedback = feedback,
+            fluencyScore = fluencyScore,
         )
     }
 

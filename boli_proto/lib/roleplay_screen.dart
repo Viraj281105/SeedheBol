@@ -93,6 +93,11 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
   bool _gemmaAvailable = false;
   String _statusText = 'बोलण्यासाठी माइक दाबा (Tap mic to speak)';
 
+  // Session limits and fluency state
+  static const int _maxTurns = 5;
+  int _userTurnCount = 0;
+  bool _sessionCompleted = false;
+
   @override
   void initState() {
     super.initState();
@@ -100,8 +105,7 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
       (p) => widget.scenario.toLowerCase().contains(p.id),
       orElse: () => _kPersonas.first,
     );
-    _checkGemmaAvailability();
-    _startConversationWithPersona(_activePersona);
+    _initRoleplay();
   }
 
   @override
@@ -111,29 +115,35 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
         'scenario_id': '${_activePersona.title}: ${widget.scenario}',
       });
     }
+    _engineChannel.invokeMethod('clearConversationHistory');
     _scrollCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _checkGemmaAvailability() async {
+  Future<void> _initRoleplay() async {
     try {
       final available =
           await _engineChannel.invokeMethod<bool>('isGemmaAvailable') ?? false;
       if (mounted) {
         setState(() => _gemmaAvailable = available);
-        // Now that we know Gemma is available, regenerate the opener dynamically.
-        if (available && _bubbles.length == 1) {
-          _upgradeOpenerWithGemma(_activePersona);
-        }
       }
     } on PlatformException {
       // non-fatal
     }
+    await _startConversationWithPersona(_activePersona);
   }
 
-  /// Shows the hardcoded opener immediately, then silently upgrades it with
-  /// a Gemma-generated opener once the engine confirms availability.
-  Future<void> _upgradeOpenerWithGemma(_RoleplayPersona persona) async {
+  Future<void> _startConversationWithPersona(_RoleplayPersona persona) async {
+    if (!mounted) return;
+    setState(() {
+      _activePersona = persona;
+      _bubbles.clear();
+      _userTurnCount = 0;
+      _sessionCompleted = false;
+      _botThinking = true;
+      _statusText = '${persona.title} बोलण्याची तयारी करत आहेत… (Preparing…)';
+    });
+
     try {
       final res = await _engineChannel.invokeMapMethod<String, dynamic>(
         'generateRoleplayOpener',
@@ -145,49 +155,41 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
         },
       );
       if (!mounted) return;
-      final l2 = res?['opener_l2'] as String? ?? '';
-      final l1 = res?['opener_l1'] as String? ?? '';
-      if (l2.isNotEmpty && _bubbles.isNotEmpty) {
-        setState(() {
-          // Replace the placeholder opener bubble with the Gemma-generated one
-          _bubbles[0] = _ChatBubble.bot(
-            l2Text: l2,
-            l1Text: l1,
-            speakerName: persona.title,
-            aiSource: 'gemma',
-          );
-        });
-        // Re-speak the Gemma opener
-        _speak(l2);
-      }
-    } on PlatformException {
-      // Non-fatal: keep the hardcoded opener
-    }
-  }
+      final l2 = res?['opener_l2'] as String? ?? persona.openerL2;
+      final l1 = res?['opener_l1'] as String? ?? persona.openerL1;
+      final aiSource = res?['ai_source'] as String? ?? (_gemmaAvailable ? 'gemma' : 'fallback');
 
-  void _startConversationWithPersona(_RoleplayPersona persona) {
-    setState(() {
-      _activePersona = persona;
-      _bubbles.clear();
-      // Show hardcoded opener immediately so there's no blank screen.
-      // If Gemma is already confirmed available, upgrade it right away.
-      // Otherwise _checkGemmaAvailability will upgrade it after the check.
-      _bubbles.add(_ChatBubble.bot(
-        l2Text: persona.openerL2,
-        l1Text: persona.openerL1,
-        speakerName: persona.title,
-        aiSource: _gemmaAvailable ? 'gemma' : 'fallback',
-      ));
-    });
-    Future.delayed(const Duration(milliseconds: 300), () => _speak(persona.openerL2));
-    // If Gemma is already confirmed available (e.g. switching personas), upgrade now.
-    if (_gemmaAvailable) {
-      _upgradeOpenerWithGemma(persona);
+      setState(() {
+        _bubbles.add(_ChatBubble.bot(
+          l2Text: l2,
+          l1Text: l1,
+          speakerName: persona.title,
+          aiSource: aiSource,
+        ));
+        _botThinking = false;
+        _statusText = 'बोलण्यासाठी माइक दाबा (Tap mic to speak · 1/$_maxTurns)';
+      });
+      _scrollToBottom();
+      _speak(l2);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _bubbles.add(_ChatBubble.bot(
+          l2Text: persona.openerL2,
+          l1Text: persona.openerL1,
+          speakerName: persona.title,
+          aiSource: 'fallback',
+        ));
+        _botThinking = false;
+        _statusText = 'बोलण्यासाठी माइक दाबा (Tap mic to speak · 1/$_maxTurns)';
+      });
+      _scrollToBottom();
+      _speak(persona.openerL2);
     }
   }
 
   Future<void> _listen() async {
-    if (_listening || _botThinking) return;
+    if (_listening || _botThinking || _sessionCompleted) return;
     setState(() {
       _listening = true;
       _statusText = 'ऐकत आहे… (Listening…)';
@@ -210,22 +212,26 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
         return;
       }
 
+      final nextTurnIndex = _userTurnCount + 1;
       final userBubbleIndex = _bubbles.length;
       setState(() {
         _bubbles.add(_ChatBubble.user(text: transcript));
+        _userTurnCount = nextTurnIndex;
         _listening = false;
         _botThinking = true;
         _statusText = _gemmaAvailable ? 'Gemma विचार करत आहे… (Gemma is thinking…)' : 'उत्तर तयार होत आहे…';
       });
       _scrollToBottom();
 
-      // Submit to BoliAiLayer (Gemma or fallback)
+      // Submit to BoliAiLayer (Gemma or fallback) with turn count
       final response = await _engineChannel.invokeMapMethod<String, dynamic>(
         'submitUserUtterance',
         {
           'situation_id': '${_activePersona.title}: ${widget.scenario}',
-          'current_node_id': 'turn_${_bubbles.length}',
+          'current_node_id': 'turn_$nextTurnIndex',
           'user_spoken_text': transcript,
+          'turn_number': nextTurnIndex,
+          'max_turns': _maxTurns,
         },
       );
 
@@ -236,15 +242,17 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
       final betterWay = response?['natural_phrasing'] as String? ?? '';
       final feedback = response?['intent_explanation'] as String? ?? '';
       final aiSource = response?['ai_source'] as String? ?? 'gemma';
+      final fluencyScore = response?['fluency_score'] as int?;
+
+      final isFinished = nextTurnIndex >= _maxTurns;
 
       setState(() {
-        // Update user bubble with coaching polish if available
-        if (betterWay.isNotEmpty || feedback.isNotEmpty) {
-          _bubbles[userBubbleIndex] = _bubbles[userBubbleIndex].copyWith(
-            betterWay: betterWay,
-            feedback: feedback,
-          );
-        }
+        // Update user bubble with coaching polish and fluency score
+        _bubbles[userBubbleIndex] = _bubbles[userBubbleIndex].copyWith(
+          betterWay: betterWay.isNotEmpty ? betterWay : null,
+          feedback: feedback.isNotEmpty ? feedback : null,
+          fluencyScore: fluencyScore,
+        );
 
         // Add bot reply bubble
         if (botL2.isNotEmpty) {
@@ -258,7 +266,12 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
         }
 
         _botThinking = false;
-        _statusText = 'उत्तर देण्यासाठी माइक दाबा (Tap mic to reply)';
+        if (isFinished) {
+          _sessionCompleted = true;
+          _statusText = 'संभाषण पूर्ण झाले! (Roleplay completed)';
+        } else {
+          _statusText = 'उत्तर देण्यासाठी माइक दाबा (Turn ${nextTurnIndex + 1}/$_maxTurns)';
+        }
       });
       _scrollToBottom();
 
@@ -294,6 +307,15 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
     });
   }
 
+  int get _averageFluency {
+    final userBubblesWithScores = _bubbles
+        .where((b) => b.isUser && b.fluencyScore != null)
+        .map((b) => b.fluencyScore!)
+        .toList();
+    if (userBubblesWithScores.isEmpty) return 78;
+    return (userBubblesWithScores.reduce((a, b) => a + b) / userBubblesWithScores.length).round();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -307,15 +329,28 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
               child: ListView.builder(
                 controller: _scrollCtrl,
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                itemCount: _bubbles.length + (_botThinking ? 1 : 0),
+                itemCount: _bubbles.length + (_botThinking ? 1 : 0) + (_sessionCompleted ? 1 : 0),
                 itemBuilder: (_, i) {
-                  if (i == _bubbles.length && _botThinking) {
+                  if (i < _bubbles.length) {
+                    return _BubbleWidget(
+                      bubble: _bubbles[i],
+                      onSpeak: _speak,
+                    );
+                  }
+                  if (_botThinking && i == _bubbles.length) {
                     return _ThinkingBubble(persona: _activePersona);
                   }
-                  return _BubbleWidget(
-                    bubble: _bubbles[i],
-                    onSpeak: _speak,
-                  );
+                  if (_sessionCompleted) {
+                    return _FluencyScorecard(
+                      persona: _activePersona,
+                      turnCount: _userTurnCount,
+                      averageFluency: _averageFluency,
+                      bubbles: _bubbles,
+                      onRestart: () => _startConversationWithPersona(_activePersona),
+                      onSpeak: _speak,
+                    );
+                  }
+                  return const SizedBox.shrink();
                 },
               ),
             ),
@@ -356,6 +391,30 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
               ],
             ),
           ),
+          // Turn progress badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _sessionCompleted
+                  ? Boli.leaf.withValues(alpha: .15)
+                  : Boli.marigold.withValues(alpha: .2),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: _sessionCompleted
+                    ? Boli.leaf.withValues(alpha: .4)
+                    : Boli.marigold.withValues(alpha: .4),
+                width: 1,
+              ),
+            ),
+            child: Text(
+              _sessionCompleted ? 'पूर्ण (Done)' : 'उत्तर $_userTurnCount/$_maxTurns',
+              style: Boli.label(
+                size: 11,
+                color: _sessionCompleted ? Boli.leaf : Boli.ink,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
           // Gemma badge
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -486,6 +545,7 @@ class _ChatBubble {
   final String speakerName;
   final String aiSource;
   final bool isUser;
+  final int? fluencyScore; // 0-100 fluency rating
 
   const _ChatBubble({
     required this.text,
@@ -496,11 +556,13 @@ class _ChatBubble {
     this.speakerName = '',
     this.aiSource = 'gemma',
     required this.isUser,
+    this.fluencyScore,
   });
 
-  factory _ChatBubble.user({required String text}) => _ChatBubble(
+  factory _ChatBubble.user({required String text, int? fluencyScore}) => _ChatBubble(
         text: text,
         isUser: true,
+        fluencyScore: fluencyScore,
       );
 
   factory _ChatBubble.bot({
@@ -528,6 +590,7 @@ class _ChatBubble {
     String? speakerName,
     String? aiSource,
     bool? isUser,
+    int? fluencyScore,
   }) =>
       _ChatBubble(
         text: text ?? this.text,
@@ -538,6 +601,7 @@ class _ChatBubble {
         speakerName: speakerName ?? this.speakerName,
         aiSource: aiSource ?? this.aiSource,
         isUser: isUser ?? this.isUser,
+        fluencyScore: fluencyScore ?? this.fluencyScore,
       );
 }
 
@@ -566,6 +630,42 @@ class _BubbleWidget extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          if (bubble.fluencyScore != null) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 4, right: 40),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: bubble.fluencyScore! >= 75
+                    ? Boli.leaf.withValues(alpha: .14)
+                    : Boli.marigold.withValues(alpha: .25),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: bubble.fluencyScore! >= 75
+                      ? Boli.leaf.withValues(alpha: .4)
+                      : Boli.terracotta.withValues(alpha: .3),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    bubble.fluencyScore! >= 75 ? Icons.check_circle_rounded : Icons.speed_rounded,
+                    size: 12,
+                    color: bubble.fluencyScore! >= 75 ? Boli.leaf : Boli.terracotta,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${bubble.fluencyScore}% प्रवाही (Fluency)',
+                    style: Boli.label(
+                      size: 11,
+                      color: bubble.fluencyScore! >= 75 ? Boli.leaf : Boli.terracotta,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -805,6 +905,206 @@ class _ThinkingBubble extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fluency Scorecard Widget (Presented after 5 turns)
+// ---------------------------------------------------------------------------
+
+class _FluencyScorecard extends StatelessWidget {
+  final _RoleplayPersona persona;
+  final int turnCount;
+  final int averageFluency;
+  final List<_ChatBubble> bubbles;
+  final VoidCallback onRestart;
+  final void Function(String) onSpeak;
+
+  const _FluencyScorecard({
+    required this.persona,
+    required this.turnCount,
+    required this.averageFluency,
+    required this.bubbles,
+    required this.onRestart,
+    required this.onSpeak,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final userBubbles = bubbles.where((b) => b.isUser).toList();
+    final polishSuggestions = userBubbles.where((b) => b.betterWay.isNotEmpty).toList();
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Boli.cream,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Boli.marigold, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Boli.ink.withValues(alpha: .08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Boli.marigold.withValues(alpha: .2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.stars_rounded, color: Boli.marigold, size: 28),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'संभाषण प्रवाहीपणा अहवाल',
+                      style: Boli.head(18, weight: 800),
+                    ),
+                    Text(
+                      'Fluency & Naturalness Scorecard · $turnCount उत्तरे',
+                      style: Boli.body(13, color: Boli.inkSoft),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Fluency Gauge Card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Boli.paper,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Boli.sand),
+            ),
+            child: Row(
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    SizedBox(
+                      width: 64,
+                      height: 64,
+                      child: CircularProgressIndicator(
+                        value: averageFluency / 100.0,
+                        strokeWidth: 6,
+                        backgroundColor: Boli.sand.withValues(alpha: .4),
+                        color: averageFluency >= 75 ? Boli.leaf : Boli.marigold,
+                      ),
+                    ),
+                    Text(
+                      '$averageFluency%',
+                      style: Boli.head(16, weight: 800, color: Boli.ink),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        averageFluency >= 85
+                            ? 'उत्कृष्ट प्रवाहीपणा! (Highly Fluent)'
+                            : averageFluency >= 70
+                                ? 'चांगला संवाद! (Good Naturalness)'
+                                : 'सराव सुरू ठेवा (Keep Practicing)',
+                        style: Boli.head(15, weight: 700, color: Boli.ink),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'तुमची वाक्ये समजण्यासारखी आणि कामाच्या ठिकाणी योग्य होती.',
+                        style: Boli.body(13, color: Boli.inkSoft),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Key Better Way Polish items review
+          if (polishSuggestions.isNotEmpty) ...[
+            Text(
+              'सुचवलेले अचूक उच्चार व वाक्यरचना:',
+              style: Boli.body(14, weight: FontWeight.w700, color: Boli.ink),
+            ),
+            const SizedBox(height: 8),
+            ...polishSuggestions.take(2).map(
+              (b) => Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Boli.paper,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Boli.sand.withValues(alpha: .6)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            b.betterWay,
+                            style: Boli.body(14, weight: FontWeight.w700, color: Boli.ink),
+                          ),
+                          if (b.feedback.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              b.feedback,
+                              style: Boli.body(12, color: Boli.inkSoft),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.volume_up_rounded, color: Boli.terracotta, size: 20),
+                      onPressed: () => onSpeak(b.betterWay),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Action buttons: Try Again / Change Persona
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: onRestart,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Boli.marigold,
+                    foregroundColor: Boli.ink,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  icon: const Icon(Icons.replay_rounded, size: 18),
+                  label: Text('पुन्हा बोला (Restart · 5 Turns)', style: Boli.body(14, weight: FontWeight.w700)),
+                ),
+              ),
+            ],
           ),
         ],
       ),
