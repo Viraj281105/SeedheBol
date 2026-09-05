@@ -28,20 +28,61 @@ class OnnxAsr(private val context: Context) {
     private val preprocessor: OrtSession by lazy {
         env.createSession(resolveAsset("nemo80.onnx").absolutePath, sessionOptions())
     }
-    private val model: OrtSession by lazy {
-        env.createSession(resolveAsset(MODEL).absolutePath, sessionOptions())
+
+    @Volatile
+    private var currentLanguage: String = "mr"
+    private var activeModel: OrtSession? = null
+    private var activeVocab: Map<Int, String>? = null
+    private var activeBlankId: Int = 256
+    private val modelLock = Any()
+
+    private fun loadModelForLanguage(lang: String): OrtSession {
+        val file = resolveAssetForLang(MODEL, lang)
+        Log.i(TAG, "Loading ASR acoustic model for '$lang' from ${file.absolutePath}")
+        return env.createSession(file.absolutePath, sessionOptions())
     }
 
-    /** id -> token. Blank is the highest id, written as "<blk>" in vocab.txt. */
-    private val vocab: Map<Int, String> by lazy {
-        resolveAsset("vocab.txt").readLines()
+    private fun loadVocabForLanguage(lang: String): Map<Int, String> {
+        val file = resolveAssetForLang("vocab.txt", lang)
+        Log.i(TAG, "Loading ASR vocab for '$lang' from ${file.absolutePath}")
+        val map = file.readLines()
             .filter { it.isNotBlank() }
             .associate { line ->
                 val cut = line.lastIndexOf(' ')
                 line.substring(cut + 1).toInt() to line.substring(0, cut)
             }
+        activeBlankId = map.keys.maxOrNull() ?: 256
+        return map
     }
-    private val blankId: Int by lazy { vocab.keys.max() }
+
+    private fun getModel(): OrtSession = synchronized(modelLock) {
+        activeModel ?: loadModelForLanguage(currentLanguage).also { activeModel = it }
+    }
+
+    private fun getVocab(): Map<Int, String> = synchronized(modelLock) {
+        activeVocab ?: loadVocabForLanguage(currentLanguage).also { activeVocab = it }
+    }
+
+    private fun getBlankId(): Int = synchronized(modelLock) {
+        if (activeVocab == null) getVocab()
+        activeBlankId
+    }
+
+    /** Switches active language model and vocabulary dynamically without app restart. */
+    fun setLanguage(lang: String) {
+        val code = lang.lowercase().trim()
+        if (code == currentLanguage && activeModel != null) return
+        synchronized(modelLock) {
+            Log.i(TAG, "Switching ASR language to: $code")
+            currentLanguage = code
+            runCatching { activeModel?.close() }
+            activeModel = loadModelForLanguage(code)
+            activeVocab = loadVocabForLanguage(code)
+            Log.i(TAG, "ASR language switched to $code, vocab=${activeVocab?.size}, blank=$activeBlankId")
+        }
+    }
+
+    fun getLanguage(): String = currentLanguage
 
     /**
      * Session options with Qualcomm QNN Hexagon HTP NPU execution provider (SM8850 / Snapdragon 8 Elite).
@@ -61,13 +102,29 @@ class OnnxAsr(private val context: Context) {
     }
 
     /**
+     * Resolves language-specific asset from external models/$lang/ or filesDir/models/$lang/,
+     * falling back to root external storage or bundled assets.
+     */
+    private fun resolveAssetForLang(name: String, lang: String): File {
+        val extLang = File(context.getExternalFilesDir(null), "models/$lang/$name")
+        if (extLang.exists() && extLang.length() > 0L) {
+            Log.i(TAG, "Using external lang asset for $lang: ${extLang.absolutePath}")
+            return extLang
+        }
+        val intLang = File(context.filesDir, "models/$lang/$name")
+        if (intLang.exists() && intLang.length() > 0L) {
+            Log.i(TAG, "Using internal lang asset for $lang: ${intLang.absolutePath}")
+            return intLang
+        }
+        return resolveAsset(name)
+    }
+
+    /**
      * ONNX Runtime cannot mmap a file inside an APK (Trap 5), so assets are
      * copied to filesDir once and opened from there.
      *
      * If the same filename exists in the app's external files dir it wins, which
-     * lets `adb push` swap the model without a reinstall (Trap 7). That directory
-     * is readable without any storage permission under scoped storage:
-     *   adb push model.arm64.onnx /sdcard/Android/data/com.boli.boli_proto/files/
+     * lets `adb push` swap the model without a reinstall (Trap 7).
      */
     private fun resolveAsset(name: String): File {
         val pushed = File(context.getExternalFilesDir(null), name)
@@ -88,9 +145,9 @@ class OnnxAsr(private val context: Context) {
     /** Warms both sessions so the first real transcription is not also a cold start. */
     fun warmUp() {
         preprocessor
-        model
-        vocab
-        Log.i(TAG, "sessions ready, vocab=${vocab.size}, blank=$blankId")
+        getModel()
+        getVocab()
+        Log.i(TAG, "sessions ready, vocab=${getVocab().size}, blank=${getBlankId()}")
     }
 
     fun transcribe(samples: FloatArray): String {
@@ -115,7 +172,7 @@ class OnnxAsr(private val context: Context) {
                         val nFrames = (featuresLens.value as LongArray)[0]
 
                         // --- acoustic model ---
-                        model.run(
+                        getModel().run(
                             mapOf("audio_signal" to features, "length" to featuresLens)
                         ).use { out ->
                             @Suppress("UNCHECKED_CAST")
@@ -141,11 +198,13 @@ class OnnxAsr(private val context: Context) {
     private fun greedyCtcDecode(logprobs: Array<FloatArray>, validFrames: Int): String {
         val sb = StringBuilder()
         var prev = -1
+        val curBlank = getBlankId()
+        val curVocab = getVocab()
         for (t in 0 until minOf(validFrames, logprobs.size)) {
             val row = logprobs[t]
             var best = 0
             for (i in row.indices) if (row[i] > row[best]) best = i
-            if (best != prev && best != blankId) sb.append(vocab[best] ?: "")
+            if (best != prev && best != curBlank) sb.append(curVocab[best] ?: "")
             prev = best
         }
         return sb.toString().replace("▁", " ").trim()

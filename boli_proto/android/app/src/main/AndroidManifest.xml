@@ -4,6 +4,15 @@
     <!-- CAMERA: ML Kit OCR camera lens screen. Runtime-requested. -->
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
+
+    <!-- 24/7 Background Ambient Mining Service permissions -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- NFC Peer Beam for collaborative workplace practice -->
+    <uses-permission android:name="android.permission.NFC"/>
+    <uses-feature android:name="android.hardware.nfc" android:required="false"/>
     <application
         android:label="SeedheBol"
         android:name="${applicationName}"
@@ -32,6 +41,13 @@
         </activity>
         <!-- Qualcomm Hexagon DSP FastRPC native library for QNN HTP NPU -->
         <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+
+        <!-- 24/7 Background Ambient Vocabulary Mining Foreground Service -->
+        <service
+            android:name=".service.AmbientMiningService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

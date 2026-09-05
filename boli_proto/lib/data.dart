@@ -33,18 +33,18 @@ List<Lang> get targetLanguages => languages.where((l) => !l.l1Only).toList();
 /// The 22 scheduled languages are the destination. These are the ones the
 /// prototype surfaces; only Marathi is actually resident on device.
 const languages = <Lang>[
-  Lang('mr', 'मराठी', 'Marathi', installed: true),
-  Lang('ta', 'தமிழ்', 'Tamil', installed: true),
-  Lang('hi', 'हिन्दी', 'Hindi', installed: true),
-  Lang('te', 'తెలుగు', 'Telugu', installed: true),
-  Lang('kn', 'ಕನ್ನಡ', 'Kannada', installed: true),
-  Lang('ml', 'മലയാളം', 'Malayalam', installed: true),
-  Lang('bn', 'বাংলা', 'Bengali', installed: true),
-  Lang('gu', 'ગુજરાતી', 'Gujarati', installed: true),
-  Lang('pa', 'ਪੰਜਾਬੀ', 'Punjabi', installed: true),
-  Lang('or', 'ଓଡ଼ିଆ', 'Odia', installed: true),
-  Lang('as', 'অসমীয়া', 'Assamese', installed: true),
-  Lang('ur', 'اردو', 'Urdu', installed: true),
+  Lang('mr', 'मराठी', 'Marathi', installed: true, mb: 0),
+  Lang('hi', 'हिन्दी', 'Hindi', installed: false, mb: 187),
+  Lang('ta', 'தமிழ்', 'Tamil', installed: false, mb: 188),
+  Lang('te', 'తెలుగు', 'Telugu', installed: false, mb: 186),
+  Lang('kn', 'ಕನ್ನಡ', 'Kannada', installed: false, mb: 189),
+  Lang('ml', 'മലയാളം', 'Malayalam', installed: false, mb: 187),
+  Lang('bn', 'বাংলা', 'Bengali', installed: false, mb: 188),
+  Lang('gu', 'ગુજરાતી', 'Gujarati', installed: false, mb: 187),
+  Lang('or', 'ଓଡ଼ିଆ', 'Odia', installed: false, mb: 187),
+  Lang('pa', 'ਪੰਜਾਬੀ', 'Punjabi', installed: false, mb: 188),
+  Lang('as', 'অসমীয়া', 'Assamese', installed: false, mb: 186),
+  Lang('ur', 'اردو', 'Urdu', installed: false, mb: 187),
   // Last, deliberately: the point of the product is Indian languages, and a
   // list headed by English would say the opposite.
   Lang('en', 'English', 'English', installed: true, mb: 0, l1Only: true),

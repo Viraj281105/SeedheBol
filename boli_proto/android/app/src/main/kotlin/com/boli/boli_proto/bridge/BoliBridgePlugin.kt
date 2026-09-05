@@ -17,6 +17,8 @@ import com.boli.boli_proto.MlKitOcr
 import com.boli.boli_proto.MicRecorder
 import com.boli.boli_proto.OnnxAsr
 import com.boli.boli_proto.FastPitchTts
+import com.boli.boli_proto.downloader.ModelDownloadManager
+import com.boli.boli_proto.service.AmbientMiningService
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -201,8 +203,13 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             "stopSpeaking" -> handleStopSpeaking(result)
             "startAmbientMining" -> handleStartAmbientMining(result)
             "stopAmbientMining" -> handleStopAmbientMining(result)
-            "isAmbientMiningActive" -> result.success(isAmbientMiningActive)
+            "isAmbientMiningActive" -> result.success(isAmbientMiningActive || AmbientMiningService.isRunning)
             "mineSamplePhraseNow" -> handleMineSamplePhraseNow(result)
+            // Multi-Language On-Demand Downloader API
+            "checkLanguageInstalled" -> handleCheckLanguageInstalled(call, result)
+            "downloadLanguage" -> handleDownloadLanguage(call, result)
+            "setActiveLanguage" -> handleSetActiveLanguage(call, result)
+            "getInstalledLanguages" -> handleGetInstalledLanguages(result)
             // OCR — now wired to MlKitOcr
             "extractTextFromImage" -> handleExtractTextFromImage(call, result)
             // NEW: Gemma-powered flows
@@ -256,6 +263,26 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             conversationHistory.clear()
         }
 
+        // Configure ASR & TTS engines for selected L2 target language
+        val targetLangCode = when {
+            l2.startsWith("ta", ignoreCase = true) || l2.contains("tamil", ignoreCase = true) -> "ta"
+            l2.startsWith("hi", ignoreCase = true) || l2.contains("hindi", ignoreCase = true) -> "hi"
+            l2.startsWith("te", ignoreCase = true) || l2.contains("telugu", ignoreCase = true) -> "te"
+            l2.startsWith("kn", ignoreCase = true) || l2.contains("kannada", ignoreCase = true) -> "kn"
+            l2.startsWith("ml", ignoreCase = true) || l2.contains("malayalam", ignoreCase = true) -> "ml"
+            l2.startsWith("bn", ignoreCase = true) || l2.contains("bengali", ignoreCase = true) -> "bn"
+            l2.startsWith("gu", ignoreCase = true) || l2.contains("gujarati", ignoreCase = true) -> "gu"
+            l2.startsWith("or", ignoreCase = true) || l2.contains("odia", ignoreCase = true) -> "or"
+            else -> "mr"
+        }
+        try {
+            ambientAsr.setLanguage(targetLangCode)
+            tts.setLanguage(targetLangCode)
+            Log.i(TAG, "Initialized engine corridor: $corridor ($l1 -> $l2), engines set to $targetLangCode")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Engine language switch warning: ${t.message}")
+        }
+
         pluginScope.launch {
             withContext(Dispatchers.Main) { result.success(true) }
         }
@@ -281,8 +308,9 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     private fun handleScorePronunciation(call: MethodCall, result: Result) {
         val targetWord = call.argument<String>("target_word") ?: ""
         val canonicalG2P = call.argument<String>("canonical_g2p") ?: ""
+        val dialect = call.argument<String>("dialect") ?: memoryStore.dialect
         pluginScope.launch {
-            val response = fallback.scorePronunciation(targetWord, canonicalG2P)
+            val response = fallback.scorePronunciation(targetWord, canonicalG2P, dialect)
             withContext(Dispatchers.Main) { result.success(response) }
         }
     }
@@ -531,13 +559,19 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     }
 
     /**
-     * Records a short audio window (6s), transcribes with OnnxAsr,
-     * then asks Gemma/fallback to extract the key workplace word from what was actually heard.
-     * Falls back to the static pool when ASR hears silence.
+     * Records a short audio window (6s), transcribes with OnnxAsr, then extracts
+     * the most pedagogically-valuable word from what was actually overheard.
+     *
+     * Priority order:
+     *   1. A word the learner has NOT encountered before (genuinely new)
+     *   2. A word the learner has seen but likely needs reinforcement
+     *   3. Whole-phrase card if no individual word matched the dict
+     *   4. Static fallback pool only on silence
      */
+    private val sessionSeenWords = mutableSetOf<String>() // dedupe within one mining session
+
     private suspend fun mineFromRealAudio(): Map<String, Any> {
         val l2 = sessionCtx.l2
-        val l1 = sessionCtx.l1
 
         // 1. Capture 6 seconds of ambient audio
         val pcm = withContext(Dispatchers.IO) {
@@ -559,57 +593,96 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
 
         Log.i(TAG, "Ambient ASR heard: '$transcript'")
 
-        // 3. If nothing heard, return a fallback vocabulary word
+        // 3. Silence → static fallback
         if (transcript.isBlank()) {
-            Log.d(TAG, "Ambient: silence detected, using fallback word")
+            Log.d(TAG, "Ambient: silence, using fallback word")
             return fallbackMinedLemma(l2)
         }
 
-        // 4. Ask Gemma/fallback to analyze the phrase and extract important words from what was heard
-        return try {
-            val ctx = sessionCtx
-            val analysis = aiLayer.analyzeHeardPhrase(phrase = transcript, ctx = ctx)
-            val heardPhrase = analysis.value
+        // 4. Tokenize the transcript into individual words
+        val tokens = transcript
+            .split(Regex("[\\s,?.!।\"'\\-।]+"))
+            .map { it.trim() }
+            .filter { it.length >= 2 } // skip single-char tokens
 
-            // Pick the top word from what was extracted from the real audio
-            val topWord = heardPhrase.importantWords.firstOrNull()
-            if (topWord != null && topWord.word.isNotBlank()) {
-                memoryStore.addLearnedVocab(topWord.word)
-                memoryStore.addRecentContext("Ambient overheard: $transcript")
-                mapOf(
-                    "lemma" to topWord.word,
-                    "transliteration" to topWord.word, // word itself acts as transliteration hint
-                    "translation_l1" to topWord.meaning,
-                    "context_sentence" to transcript, // actual overheard sentence
-                    "occurrence_count" to 1,
-                    "timestamp_ms" to System.currentTimeMillis(),
-                )
-            } else if (transcript.isNotBlank()) {
-                // The whole phrase is new — surface it as a phrase card
-                memoryStore.addRecentContext("Ambient overheard: $transcript")
-                mapOf(
-                    "lemma" to transcript.take(60), // keep it short
-                    "transliteration" to "",
-                    "translation_l1" to heardPhrase.meaningL1,
-                    "context_sentence" to transcript,
-                    "occurrence_count" to 1,
-                    "timestamp_ms" to System.currentTimeMillis(),
-                )
+        // 5. Score each token against the workplace dict and learner memory
+        //    "new" = in dict AND not yet known AND not seen this session
+        //    "reinforce" = in dict AND already known (but not seen this session)
+        val newWords = mutableListOf<Pair<String, String>>()    // (word, meaning)
+        val reinforceWords = mutableListOf<Pair<String, String>>()
+
+        for (token in tokens) {
+            val meaning = fallback.lookupWord(token) ?: continue // not in dict → skip
+            if (sessionSeenWords.contains(token)) continue       // already shown this session → skip
+            if (!memoryStore.isWordKnown(token)) {
+                newWords.add(token to meaning)
             } else {
-                fallbackMinedLemma(l2)
+                reinforceWords.add(token to meaning)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Ambient phrase analysis failed, using fallback: ${e.message}")
-            fallbackMinedLemma(l2)
         }
+
+        Log.d(TAG, "Ambient words — new: ${newWords.size}, reinforce: ${reinforceWords.size}, tokens: ${tokens.size}")
+
+        // 6. Pick the best word to surface
+        val chosen: Pair<String, String>? = when {
+            newWords.isNotEmpty() -> newWords.first()          // ← genuinely new word
+            reinforceWords.isNotEmpty() -> reinforceWords.first() // ← reinforcement
+            else -> null                                        // ← no dict match
+        }
+
+        if (chosen != null) {
+            val (word, meaning) = chosen
+            sessionSeenWords.add(word)
+            // Only persist to learnedVocab after showing it (not before)
+            memoryStore.addLearnedVocab(word)
+            memoryStore.addRecentContext("Ambient overheard: $transcript")
+            val isNew = newWords.firstOrNull()?.first == word
+            Log.i(TAG, "Ambient surfaced ${if (isNew) "NEW" else "REINFORCE"} word: '$word' → $meaning")
+            return mapOf(
+                "lemma" to word,
+                "transliteration" to word,   // same script — acts as pronunciation anchor
+                "translation_l1" to meaning,
+                "context_sentence" to transcript, // actual overheard sentence
+                "occurrence_count" to 1,
+                "timestamp_ms" to System.currentTimeMillis(),
+            )
+        }
+
+        // 7. No word matched the dict — surface the full phrase as a phrase card
+        //    (happens when ASR picks up something genuinely novel outside our dict)
+        memoryStore.addRecentContext("Ambient overheard (unknown): $transcript")
+        Log.i(TAG, "Ambient: no dict match, surfacing phrase card")
+        return mapOf(
+            "lemma" to transcript.take(50).trimEnd(),
+            "transliteration" to "",
+            "translation_l1" to "नई अभिव्यक्ति / New overheard phrase",
+            "context_sentence" to transcript,
+            "occurrence_count" to 1,
+            "timestamp_ms" to System.currentTimeMillis(),
+        )
     }
 
     private fun handleStartAmbientMining(result: Result) {
-        if (isAmbientMiningActive) {
+        if (isAmbientMiningActive || AmbientMiningService.isRunning) {
             result.success(true)
             return
         }
         isAmbientMiningActive = true
+
+        // 1. Launch 24/7 Background Foreground Service with persistent notification & RAM ring-buffer
+        AmbientMiningService.onWordDiscovered = { data ->
+            mainHandler.post {
+                ambientSink?.success(data)
+            }
+        }
+        try {
+            AmbientMiningService.start(context)
+            Log.i(TAG, "Started 24/7 Background Ambient Mining Foreground Service")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not start Foreground Service: ${t.message}")
+        }
+
+        // 2. Also keep the in-app interactive capture coroutine running for immediate feedback
         ambientMiningJob?.cancel()
         ambientMiningJob = pluginScope.launch(Dispatchers.IO) {
             while (isActive && isAmbientMiningActive) {
@@ -629,6 +702,14 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         isAmbientMiningActive = false
         ambientMiningJob?.cancel()
         ambientMiningJob = null
+        sessionSeenWords.clear() // reset per-session dedupe on stop
+        try {
+            AmbientMiningService.stop(context)
+            AmbientMiningService.onWordDiscovered = null
+            Log.i(TAG, "Stopped 24/7 Background Ambient Mining Foreground Service")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Error stopping AmbientMiningService: ${t.message}")
+        }
         result.success(true)
     }
 
@@ -640,6 +721,67 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
                 result.success(item)
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Multi-Language On-Demand Downloader Handlers
+    // -------------------------------------------------------------------------
+
+    private fun handleCheckLanguageInstalled(call: MethodCall, result: Result) {
+        val lang = call.argument<String>("lang") ?: "mr"
+        val mgr = ModelDownloadManager.getInstance(context)
+        val installed = mgr.isLanguageInstalled(lang)
+        val sizeMb = ModelDownloadManager.LANGUAGE_SIZES_MB[lang.lowercase()] ?: 187
+        val name = ModelDownloadManager.LANGUAGE_NAMES[lang.lowercase()] ?: lang
+        result.success(mapOf(
+            "lang" to lang,
+            "name" to name,
+            "installed" to installed,
+            "size_mb" to sizeMb
+        ))
+    }
+
+    private fun handleDownloadLanguage(call: MethodCall, result: Result) {
+        val lang = call.argument<String>("lang") ?: "mr"
+        val customUrl = call.argument<String>("url")
+        val mgr = ModelDownloadManager.getInstance(context)
+
+        pluginScope.launch {
+            val success = mgr.downloadLanguage(lang, customUrl) { progress, status ->
+                withContext(Dispatchers.Main) {
+                    methodChannel.invokeMethod("onDownloadProgress", mapOf(
+                        "lang" to lang,
+                        "progress" to progress,
+                        "status" to status
+                    ))
+                }
+            }
+            if (success) {
+                ambientAsr.setLanguage(lang)
+                tts.setLanguage(lang)
+            }
+            withContext(Dispatchers.Main) {
+                result.success(mapOf(
+                    "success" to success,
+                    "lang" to lang
+                ))
+            }
+        }
+    }
+
+    private fun handleSetActiveLanguage(call: MethodCall, result: Result) {
+        val lang = call.argument<String>("lang") ?: "mr"
+        val code = lang.lowercase().trim()
+        ambientAsr.setLanguage(code)
+        tts.setLanguage(code)
+        memoryStore.updateProfile(l2 = code)
+        sessionCtx = memoryStore.buildPersonalizedGemmaContext()
+        result.success(true)
+    }
+
+    private fun handleGetInstalledLanguages(result: Result) {
+        val mgr = ModelDownloadManager.getInstance(context)
+        result.success(mgr.getInstalledLanguages())
     }
 
     // -------------------------------------------------------------------------

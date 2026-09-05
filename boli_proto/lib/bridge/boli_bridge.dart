@@ -87,6 +87,12 @@ abstract class IBoliBridge {
 
   // Listen Around Me API
   Future<Map<String, dynamic>> analyzeHeardPhrase(String phrase);
+
+  // Multi-Language On-Demand Downloader API
+  Future<Map<String, dynamic>> checkLanguageInstalled(String langCode);
+  Future<bool> downloadLanguage(String langCode, {void Function(double progress, String status)? onProgress});
+  Future<bool> setActiveLanguage(String langCode);
+  Future<List<String>> getInstalledLanguages();
 }
 
 class BoliBridge implements IBoliBridge {
@@ -118,7 +124,25 @@ class BoliBridge implements IBoliBridge {
        _thermalEventChannel =
            thermalEventChannel ?? const EventChannel(_thermalEventChannelName),
        _vadEventChannel =
-           vadEventChannel ?? const EventChannel(_vadEventChannelName);
+           vadEventChannel ?? const EventChannel(_vadEventChannelName) {
+     _initPlatformCallbacks();
+   }
+
+  final Map<String, void Function(double progress, String status)> _downloadCallbacks = {};
+
+  void _initPlatformCallbacks() {
+    _methodChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onDownloadProgress') {
+        final args = Map<String, dynamic>.from(call.arguments as Map);
+        final lang = args['lang'] as String?;
+        final progress = (args['progress'] as num?)?.toDouble() ?? 0.0;
+        final status = args['status'] as String? ?? '';
+        if (lang != null && _downloadCallbacks.containsKey(lang)) {
+          _downloadCallbacks[lang]!(progress, status);
+        }
+      }
+    });
+  }
 
   // Singleton Instance
   static final BoliBridge instance = BoliBridge();
@@ -449,6 +473,65 @@ class BoliBridge implements IBoliBridge {
       'exportOfficeKitData',
     );
     return result ?? const {};
+  }
+
+  @override
+  Future<Map<String, dynamic>> checkLanguageInstalled(String langCode) async {
+    try {
+      final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+        'checkLanguageInstalled',
+        {'lang': langCode},
+      );
+      return result ?? const {'installed': false};
+    } catch (_) {
+      return const {'installed': false};
+    }
+  }
+
+  @override
+  Future<bool> downloadLanguage(
+    String langCode, {
+    void Function(double progress, String status)? onProgress,
+  }) async {
+    try {
+      if (onProgress != null) {
+        _downloadCallbacks[langCode] = onProgress;
+      }
+      final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+        'downloadLanguage',
+        {'lang': langCode},
+      );
+      _downloadCallbacks.remove(langCode);
+      return result?['success'] as bool? ?? false;
+    } catch (_) {
+      _downloadCallbacks.remove(langCode);
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> setActiveLanguage(String langCode) async {
+    try {
+      final result = await _methodChannel.invokeMethod<bool>(
+        'setActiveLanguage',
+        {'lang': langCode},
+      );
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<List<String>> getInstalledLanguages() async {
+    try {
+      final result = await _methodChannel.invokeListMethod<String>(
+        'getInstalledLanguages',
+      );
+      return result ?? const ['mr'];
+    } catch (_) {
+      return const ['mr'];
+    }
   }
 }
 

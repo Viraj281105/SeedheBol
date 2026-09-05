@@ -668,8 +668,10 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'पार्श्वभूमी शब्द संग्रह · DPDP Ephemeral RAM Buffer',
-                      style: Boli.body(12.5, color: Boli.inkSoft),
+                      _active
+                          ? '24/7 Foreground Service Active • DPDP RAM Ring-Buffer'
+                          : 'पार्श्वभूमी शब्द संग्रह • 24/7 Background Service',
+                      style: Boli.body(12.5, color: _active ? Boli.leaf : Boli.inkSoft),
                     ),
                   ],
                 ),

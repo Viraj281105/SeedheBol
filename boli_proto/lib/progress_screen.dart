@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'bridge/boli_bridge.dart';
 import 'data.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -362,61 +363,169 @@ class _Sound extends StatelessWidget {
   }
 }
 
-class _LangRow extends StatelessWidget {
+class _LangRow extends StatefulWidget {
   final Lang lang;
   const _LangRow({required this.lang});
+
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: Boli.tap,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 82,
-            child: Text(lang.native, style: Boli.head(21, weight: 600)),
+  State<_LangRow> createState() => _LangRowState();
+}
+
+class _LangRowState extends State<_LangRow> {
+  bool _isInstalled = false;
+  bool _isDownloading = false;
+  double _progress = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkStatus();
+  }
+
+  Future<void> _checkStatus() async {
+    if (widget.lang.code == 'mr') {
+      setState(() => _isInstalled = true);
+      return;
+    }
+    final res = await BoliBridge.instance.checkLanguageInstalled(widget.lang.code);
+    if (mounted) {
+      setState(() {
+        _isInstalled = (res['installed'] as bool?) ?? false;
+      });
+    }
+  }
+
+  Future<void> _onTap() async {
+    if (_isDownloading) return;
+
+    if (_isInstalled) {
+      await BoliBridge.instance.setActiveLanguage(widget.lang.code);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${widget.lang.english} (${widget.lang.native}) is now active on Qualcomm NPU',
+            style: Boli.body(14, color: Colors.white),
           ),
-          Expanded(
-            child: Text(
-              lang.english,
-              style: Boli.body(15, color: Boli.inkSoft),
+          backgroundColor: Boli.indigo,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    // Trigger on-demand download
+    setState(() {
+      _isDownloading = true;
+      _progress = 0.05;
+    });
+
+    final success = await BoliBridge.instance.downloadLanguage(
+      widget.lang.code,
+      onProgress: (p, s) {
+        if (mounted) {
+          setState(() {
+            _progress = p;
+          });
+        }
+      },
+    );
+
+    if (mounted) {
+      setState(() {
+        _isDownloading = false;
+        _isInstalled = success;
+      });
+      if (success) {
+        await BoliBridge.instance.setActiveLanguage(widget.lang.code);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${widget.lang.english} model pack downloaded and activated!',
+              style: Boli.body(14, color: Colors.white),
             ),
+            backgroundColor: Boli.leaf,
           ),
-          if (lang.installed)
-            Row(
-              children: [
-                const Icon(
-                  Icons.offline_pin_rounded,
-                  size: 19,
-                  color: Boli.leaf,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'On phone',
-                  style: Boli.body(
-                    13.5,
-                    weight: FontWeight.w700,
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: _onTap,
+    child: SizedBox(
+      height: Boli.tap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 82,
+              child: Text(widget.lang.native, style: Boli.head(21, weight: 600)),
+            ),
+            Expanded(
+              child: Text(
+                widget.lang.english,
+                style: Boli.body(15, color: Boli.inkSoft),
+              ),
+            ),
+            if (_isDownloading)
+              Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      value: _progress > 0.05 ? _progress : null,
+                      color: Boli.marigold,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${(_progress * 100).toInt()}%',
+                    style: Boli.body(13, weight: FontWeight.w700, color: Boli.marigold),
+                  ),
+                ],
+              )
+            else if (_isInstalled)
+              Row(
+                children: [
+                  const Icon(
+                    Icons.offline_pin_rounded,
+                    size: 19,
                     color: Boli.leaf,
                   ),
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                Text(
-                  '${lang.mb} MB',
-                  style: Boli.body(13.5, color: Boli.inkSoft),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.download_rounded,
-                  size: 20,
-                  color: Boli.inkSoft,
-                ),
-              ],
-            ),
-        ],
+                  const SizedBox(width: 6),
+                  Text(
+                    'On phone',
+                    style: Boli.body(
+                      13.5,
+                      weight: FontWeight.w700,
+                      color: Boli.leaf,
+                    ),
+                  ),
+                ],
+              )
+            else
+              Row(
+                children: [
+                  Text(
+                    '${widget.lang.mb} MB',
+                    style: Boli.body(13.5, color: Boli.inkSoft),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(
+                    Icons.download_rounded,
+                    size: 20,
+                    color: Boli.inkSoft,
+                  ),
+                ],
+              ),
+          ],
+        ),
       ),
     ),
   );

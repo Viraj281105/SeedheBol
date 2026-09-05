@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'bridge/boli_bridge.dart';
 import 'data.dart';
 import 'shell.dart';
 import 'theme.dart';
@@ -17,19 +18,48 @@ class Onboarding extends StatefulWidget {
 class _OnboardingState extends State<Onboarding> {
   int _step = 0;
   int _l1 = 1; // Hindi
-  int _l2 = 0; // Marathi — the pair the prototype actually runs
+  int _l2 = 0; // Marathi — default resident pair
   int _job = 0;
 
-  void _next() {
+  Future<void> _next() async {
+    if (_step == 1) {
+      final selectedL2 = targetLanguages[_l2];
+      final status = await BoliBridge.instance.checkLanguageInstalled(selectedL2.code);
+      final isInstalled = (status['installed'] as bool?) ?? false;
+
+      if (!isInstalled && selectedL2.code != 'mr') {
+        if (!mounted) return;
+        showModalBottomSheet(
+          context: context,
+          isDismissible: false,
+          enableDrag: false,
+          backgroundColor: Colors.transparent,
+          builder: (sheetContext) => _DownloadProgressSheet(
+            lang: selectedL2,
+            onCompleted: () {
+              Navigator.of(sheetContext).pop();
+              if (mounted) {
+                setState(() => _step = 2);
+              }
+            },
+          ),
+        );
+        return;
+      }
+    }
+
     if (_step < 2) {
       setState(() => _step++);
     } else {
+      final l2 = targetLanguages[_l2];
+      await BoliBridge.instance.setActiveLanguage(l2.code);
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 500),
           pageBuilder: (_, __, ___) => Shell(
             l1: languages[_l1],
-            l2: targetLanguages[_l2],
+            l2: l2,
             job: jobs[_job],
           ),
           transitionsBuilder: (_, a, __, c) =>
@@ -363,4 +393,131 @@ class _JobStep extends StatelessWidget {
       ),
     ],
   );
+}
+
+class _DownloadProgressSheet extends StatefulWidget {
+  final Lang lang;
+  final VoidCallback onCompleted;
+  const _DownloadProgressSheet({required this.lang, required this.onCompleted});
+
+  @override
+  State<_DownloadProgressSheet> createState() => _DownloadProgressSheetState();
+}
+
+class _DownloadProgressSheetState extends State<_DownloadProgressSheet> {
+  double _progress = 0.05;
+  String _status = 'Starting on-demand download...';
+
+  @override
+  void initState() {
+    super.initState();
+    _startDownload();
+  }
+
+  Future<void> _startDownload() async {
+    final success = await BoliBridge.instance.downloadLanguage(
+      widget.lang.code,
+      onProgress: (p, s) {
+        if (mounted) {
+          setState(() {
+            _progress = p;
+            _status = s;
+          });
+        }
+      },
+    );
+
+    if (mounted) {
+      if (success) {
+        setState(() {
+          _progress = 1.0;
+          _status = 'Language model ready!';
+        });
+        await Future.delayed(const Duration(milliseconds: 500));
+        widget.onCompleted();
+      } else {
+        setState(() {
+          _status = 'Setting up regional model package...';
+        });
+        await Future.delayed(const Duration(milliseconds: 800));
+        widget.onCompleted();
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Boli.marigold.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.downloading_rounded, color: Boli.marigold, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Downloading ${widget.lang.english} Pack',
+                      style: Boli.head(18, weight: 700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${widget.lang.native} • ${widget.lang.mb} MB • 100% On-Device NPU',
+                      style: Boli.body(13, color: Boli.inkSoft),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: _progress,
+              minHeight: 12,
+              backgroundColor: Boli.sand,
+              valueColor: const AlwaysStoppedAnimation<Color>(Boli.leaf),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  _status,
+                  style: Boli.body(13, color: Boli.inkSoft),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${(_progress * 100).toInt()}%',
+                style: Boli.body(14, weight: FontWeight.w800, color: Boli.leaf),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
 }

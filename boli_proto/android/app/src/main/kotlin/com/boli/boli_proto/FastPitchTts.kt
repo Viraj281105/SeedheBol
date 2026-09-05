@@ -30,12 +30,15 @@ class FastPitchTts private constructor(private val context: Context) {
 
     private val env: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
 
-    private val fastpitch: OrtSession by lazy {
-        resolveAsset("fastpitch.onnx.data")
-        env.createSession(resolveAsset(FASTPITCH_MODEL).absolutePath, npuSessionOptions("FastPitch"))
-    }
+    @Volatile
+    private var currentLanguage: String = "mr"
+    private var activeFastpitch: OrtSession? = null
+    private var activeTokens: Tokens? = null
+    private val ttsLock = Any()
+
     private val hifigan: OrtSession by lazy {
-        env.createSession(resolveAsset(HIFIGAN_MODEL).absolutePath, npuSessionOptions("HiFi-GAN"))
+        resolveAsset(HIFIGAN_MODEL)
+        env.createSession(resolveTtsAssetForLang(HIFIGAN_MODEL, currentLanguage).absolutePath, npuSessionOptions("HiFi-GAN"))
     }
 
     private data class Tokens(
@@ -47,11 +50,23 @@ class FastPitchTts private constructor(private val context: Context) {
         val eosId: Long,
     )
 
-    private val tokens: Tokens by lazy {
+    private fun loadFastpitchForLanguage(lang: String): OrtSession {
+        val dataFile = resolveTtsAssetForLang("fastpitch.onnx.data", lang)
+        val modelFile = resolveTtsAssetForLang(FASTPITCH_MODEL, lang)
+        Log.i(TAG, "Loading FastPitch TTS model for '$lang' from ${modelFile.absolutePath}")
+        return env.createSession(modelFile.absolutePath, npuSessionOptions("FastPitch ($lang)"))
+    }
+
+    private fun loadTokensForLanguage(lang: String): Tokens {
         val raw = try {
-            val assetNames = context.assets.list("") ?: emptyArray()
-            val target = if (assetNames.contains(TOKENS)) TOKENS else "tokens.json"
-            context.assets.open(target).bufferedReader().use { it.readText() }
+            val tokensFile = resolveTtsAssetForLang("tokens.json", lang)
+            if (tokensFile.exists() && tokensFile.length() > 0) {
+                tokensFile.readText()
+            } else {
+                val assetNames = context.assets.list("") ?: emptyArray()
+                val target = if (assetNames.contains(TOKENS)) TOKENS else "tokens.json"
+                context.assets.open(target).bufferedReader().use { it.readText() }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed reading primary tokens asset: ${e.message}")
             context.assets.open("tokens.json").bufferedReader().use { it.readText() }
@@ -70,7 +85,7 @@ class FastPitchTts private constructor(private val context: Context) {
                 if (key.length == 1) put(key[0], c2i.getLong(key))
             }
         }
-        Tokens(
+        return Tokens(
             charToId = map,
             addBlank = json.optBoolean("add_blank", false),
             useEosBos = json.optBoolean("use_eos_bos", false),
@@ -78,6 +93,58 @@ class FastPitchTts private constructor(private val context: Context) {
             bosId = json.optLong("bos_id", 0L),
             eosId = json.optLong("eos_id", 0L),
         )
+    }
+
+    private fun getFastpitch(): OrtSession = synchronized(ttsLock) {
+        activeFastpitch ?: loadFastpitchForLanguage(currentLanguage).also { activeFastpitch = it }
+    }
+
+    private fun getTokens(): Tokens = synchronized(ttsLock) {
+        activeTokens ?: loadTokensForLanguage(currentLanguage).also { activeTokens = it }
+    }
+
+    /** Switches active TTS language dynamically. */
+    fun setLanguage(lang: String) {
+        val code = lang.lowercase().trim()
+        if (code == currentLanguage && activeFastpitch != null) return
+        synchronized(ttsLock) {
+            Log.i(TAG, "Switching TTS language to: $code")
+            currentLanguage = code
+            runCatching { activeFastpitch?.close() }
+            activeFastpitch = loadFastpitchForLanguage(code)
+            activeTokens = loadTokensForLanguage(code)
+
+            // Update System TTS locale fallback as well
+            val localeTag = when (code) {
+                "ta" -> "ta-IN"
+                "hi" -> "hi-IN"
+                "te" -> "te-IN"
+                "kn" -> "kn-IN"
+                "ml" -> "ml-IN"
+                "bn" -> "bn-IN"
+                "gu" -> "gu-IN"
+                "or" -> "or-IN"
+                else -> "mr-IN"
+            }
+            systemTts?.setLanguage(Locale.forLanguageTag(localeTag))
+            Log.i(TAG, "TTS language switched to $code (System TTS locale: $localeTag)")
+        }
+    }
+
+    fun getLanguage(): String = currentLanguage
+
+    private fun resolveTtsAssetForLang(name: String, lang: String): File {
+        val extLang = File(context.getExternalFilesDir(null), "models/tts_fastpitch/${lang}_onnx/$name")
+        if (extLang.exists() && extLang.length() > 0L) {
+            Log.i(TAG, "Using external TTS asset for $lang: ${extLang.absolutePath}")
+            return extLang
+        }
+        val intLang = File(context.filesDir, "models/tts_fastpitch/${lang}_onnx/$name")
+        if (intLang.exists() && intLang.length() > 0L) {
+            Log.i(TAG, "Using internal TTS asset for $lang: ${intLang.absolutePath}")
+            return intLang
+        }
+        return resolveAsset(name)
     }
 
     private val cacheDir: File by lazy {
@@ -143,9 +210,9 @@ class FastPitchTts private constructor(private val context: Context) {
 
     fun warmUp() {
         try {
-            fastpitch
+            getFastpitch()
             hifigan
-            Log.i(TAG, "fastpitch ready, ${tokens.charToId.size} characters in table")
+            Log.i(TAG, "fastpitch ready, ${getTokens().charToId.size} characters in table")
         } catch (t: Throwable) {
             Log.w(TAG, "FastPitch warmUp failed (${t.message}), fallback to System TTS is available")
         }
@@ -158,8 +225,9 @@ class FastPitchTts private constructor(private val context: Context) {
 
         stop()
 
+        val curTokens = getTokens()
         val canFastPitch = try {
-            tokens.charToId.isNotEmpty() && key.any { tokens.charToId.containsKey(it) }
+            curTokens.charToId.isNotEmpty() && key.any { curTokens.charToId.containsKey(it) }
         } catch (t: Throwable) {
             Log.w(TAG, "Cannot query FastPitch tokens: ${t.message}")
             false
@@ -174,7 +242,7 @@ class FastPitchTts private constructor(private val context: Context) {
                 Log.w(TAG, "FastPitch synthesis/playback failed for \"$key\": ${t.message}. Falling back to System TTS.")
             }
         } else {
-            Log.i(TAG, "Text contains no Devanagari FastPitch vocabulary: \"$key\". Using System TTS.")
+            Log.i(TAG, "Text contains no FastPitch vocabulary for current language: \"$key\". Using System TTS.")
         }
 
         speakWithSystemTts(key)
@@ -197,20 +265,21 @@ class FastPitchTts private constructor(private val context: Context) {
     // ---- tokenisation --------------------------------------------------------
 
     private fun encode(text: String): LongArray {
-        val ids = text.mapNotNull { tokens.charToId[it] }
+        val curTokens = getTokens()
+        val ids = text.mapNotNull { curTokens.charToId[it] }
         if (ids.isEmpty()) {
             throw IllegalArgumentException(
                 "no characters of \"$text\" are in the FastPitch vocabulary"
             )
         }
         var out = ids
-        if (tokens.addBlank) {
-            val withBlank = MutableList(ids.size * 2 + 1) { tokens.blankId }
+        if (curTokens.addBlank) {
+            val withBlank = MutableList(ids.size * 2 + 1) { curTokens.blankId }
             for (i in ids.indices) withBlank[i * 2 + 1] = ids[i]
             out = withBlank
         }
-        if (tokens.useEosBos) {
-            out = listOf(tokens.bosId) + out + listOf(tokens.eosId)
+        if (curTokens.useEosBos) {
+            out = listOf(curTokens.bosId) + out + listOf(curTokens.eosId)
         }
         return out.toLongArray()
     }
@@ -231,7 +300,7 @@ class FastPitchTts private constructor(private val context: Context) {
         val pcm: ShortArray
         inputIds.use { ii ->
             speakerId.use { sp ->
-                fastpitch.run(mapOf("input_ids" to ii, "speaker_id" to sp)).use { fpOut ->
+                getFastpitch().run(mapOf("input_ids" to ii, "speaker_id" to sp)).use { fpOut ->
                     val mel = fpOut.get(0) as OnnxTensor
                     hifigan.run(mapOf("mel" to mel)).use { vocOut ->
                         // HiFi-GAN emits [B, 1, T] float32 in [-1, 1].

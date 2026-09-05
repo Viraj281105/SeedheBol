@@ -47,6 +47,8 @@ class LearnerMemoryStore(private val context: Context) {
         private set
     var userLevel: String = "beginner"
         private set
+    var dialect: String = "standard"
+        private set
 
     private val learnedVocabulary = mutableSetOf<String>()
     private val missedWordCounts = mutableMapOf<String, Int>()
@@ -80,6 +82,7 @@ class LearnerMemoryStore(private val context: Context) {
                 l2 = root.optString("l2", "Marathi")
                 occupation = root.optString("occupation", "construction worker")
                 userLevel = root.optString("userLevel", "beginner")
+                dialect = root.optString("dialect", "standard")
 
                 learnedVocabulary.clear()
                 val vocabArray = root.optJSONArray("learnedVocabulary") ?: JSONArray()
@@ -133,6 +136,7 @@ class LearnerMemoryStore(private val context: Context) {
                     put("l2", l2)
                     put("occupation", occupation)
                     put("userLevel", userLevel)
+                    put("dialect", dialect)
 
                     put("learnedVocabulary", JSONArray(learnedVocabulary.toList()))
 
@@ -166,12 +170,14 @@ class LearnerMemoryStore(private val context: Context) {
         l2: String? = null,
         occupation: String? = null,
         userLevel: String? = null,
+        dialect: String? = null,
     ) {
         synchronized(lock) {
             l1?.let { this.l1 = it }
             l2?.let { this.l2 = it }
             occupation?.let { this.occupation = it }
             userLevel?.let { this.userLevel = it }
+            dialect?.let { this.dialect = it }
             saveToDisk()
         }
     }
@@ -253,6 +259,12 @@ class LearnerMemoryStore(private val context: Context) {
         }
     }
 
+    /** Returns true if [word] (or its lowercase form) is already in the learner's known vocabulary. */
+    fun isWordKnown(word: String): Boolean = synchronized(lock) {
+        val t = word.trim()
+        learnedVocabulary.contains(t) || learnedVocabulary.contains(t.lowercase())
+    }
+
     // -------------------------------------------------------------------------
     // Gemma Context Synthesis
     // -------------------------------------------------------------------------
@@ -305,6 +317,7 @@ class LearnerMemoryStore(private val context: Context) {
             "l2" to l2,
             "occupation" to occupation,
             "user_level" to userLevel,
+            "dialect" to dialect,
             "learned_vocabulary" to learnedVocabulary.toList(),
             "frequently_missed_words" to missedWordCounts.entries
                 .sortedByDescending { it.value }

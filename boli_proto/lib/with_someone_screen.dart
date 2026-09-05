@@ -177,6 +177,39 @@ class _WithSomeoneScreenState extends State<WithSomeoneScreen> {
     });
   }
 
+  void _openNfcBeamModal() {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _NfcBeamSheet(
+        topic: _suggestedTopic,
+        onBeamed: () {
+          Navigator.of(ctx).pop();
+          HapticFeedback.heavyImpact();
+          setState(() {
+            _turns.add(_PeerTurn(
+              speakerRole: 'NFC Peer Beam',
+              spokenText: 'NFC द्वारे सराव परिस्थिती यशस्वीरीत्या जोडली गेली! ($_suggestedTopic)',
+              translation: 'NFC के जरिए बातचीत का विषय सफलतापूर्वक सिंक हो गया!',
+              coachTip: 'दोन्ही फोन आता एकाच विषयावर समोरासमोर सराव करण्यासाठी जोडले आहेत.',
+              nextPrompt: 'आता पहिला वक्ता माइक दाबून बोलायला सुरुवात करू शकतो.',
+            ));
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'NFC Peer Beam Synced: $_suggestedTopic',
+                style: Boli.body(14, color: Colors.white),
+              ),
+              backgroundColor: Boli.indigo,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -232,6 +265,26 @@ class _WithSomeoneScreenState extends State<WithSomeoneScreen> {
               ],
             ),
           ),
+          GestureDetector(
+            onTap: _openNfcBeamModal,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Boli.indigo.withValues(alpha: .15),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Boli.indigo.withValues(alpha: .3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.nfc_rounded, size: 14, color: Boli.indigo),
+                  const SizedBox(width: 4),
+                  Text('NFC Beam', style: Boli.label(size: 11, color: Boli.indigo)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
@@ -511,6 +564,134 @@ class _SpeakerMicButton extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _NfcBeamSheet extends StatefulWidget {
+  final String topic;
+  final VoidCallback onBeamed;
+  const _NfcBeamSheet({required this.topic, required this.onBeamed});
+
+  @override
+  State<_NfcBeamSheet> createState() => _NfcBeamSheetState();
+}
+
+class _NfcBeamSheetState extends State<_NfcBeamSheet> with SingleTickerProviderStateMixin {
+  late AnimationController _radarController;
+
+  @override
+  void initState() {
+    super.initState();
+    _radarController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+
+    // Emulate beam handshake after 2.4 seconds
+    Future.delayed(const Duration(milliseconds: 2400), () {
+      if (mounted) {
+        widget.onBeamed();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _radarController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 44,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Boli.sand,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 20),
+          AnimatedBuilder(
+            animation: _radarController,
+            builder: (context, child) {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 90 + (_radarController.value * 30),
+                    height: 90 + (_radarController.value * 30),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Boli.indigo.withValues(alpha: 0.25 * (1.0 - _radarController.value)),
+                    ),
+                  ),
+                  Container(
+                    width: 76,
+                    height: 76,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Boli.indigo.withValues(alpha: 0.15),
+                      border: Border.all(color: Boli.indigo, width: 2),
+                    ),
+                    child: const Icon(
+                      Icons.nfc_rounded,
+                      size: 38,
+                      color: Boli.indigo,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'NFC Peer Beam (फोन जवळ आणा)',
+            style: Boli.head(18, weight: 700),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Hold your phone back-to-back with your coworker\'s phone to beam this dialogue.',
+            style: Boli.body(13.5, color: Boli.inkSoft),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Boli.cream,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Boli.sand),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.sync_rounded, size: 16, color: Boli.indigo),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    widget.topic,
+                    style: Boli.body(13, weight: FontWeight.w700, color: Boli.indigo),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
       ),
     );
   }

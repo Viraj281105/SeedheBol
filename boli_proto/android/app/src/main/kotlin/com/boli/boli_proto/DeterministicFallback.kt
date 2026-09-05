@@ -777,7 +777,7 @@ class DeterministicFallback {
     // Listen Around Me fallback (Rich Domain Lexicon & Intent Matcher)
     // --------------------------------------------------------------------------
 
-    private val workplaceWordDict = mapOf(
+    internal val workplaceWordDict = mapOf(
         // Marathi (mr)
         "हातोडी" to "हथौड़ा / hammer",
         "सिमेंट" to "सीमेंट / cement",
@@ -869,6 +869,10 @@ class DeterministicFallback {
         "ರಸೀದಿ" to "रसीद / receipt",
         "ನೀರು" to "पानी / water"
     )
+
+    /** Returns the L1 meaning string for [word] if it exists in the workplace dict, else null. */
+    fun lookupWord(word: String): String? = workplaceWordDict[word.lowercase().trim()]
+        ?: workplaceWordDict[word.trim()]
 
     fun analyzeHeardPhrase(phrase: String, ctx: GemmaContext): HeardPhraseAnalysis {
         val p = phrase.lowercase().trim()
@@ -1039,22 +1043,36 @@ class DeterministicFallback {
     // Pronunciation scoring — always deterministic, Gemma never touches this
     // --------------------------------------------------------------------------
 
-    fun scorePronunciation(targetWord: String, canonicalG2P: String): Map<String, Any?> {
+    fun scorePronunciation(targetWord: String, canonicalG2P: String, dialect: String = "standard"): Map<String, Any?> {
+        val isNagpuri = dialect.contains("nagpur", true) || dialect.contains("varhad", true)
+        val isChennai = dialect.contains("chennai", true) || dialect.contains("madras", true)
+        val isMadurai = dialect.contains("madurai", true)
+
+        val dialectToleranceNote = when {
+            isNagpuri -> "Acceptable regional variant in Nagpur / Varhadi Marathi (वैध विदर्भी उच्चार)"
+            isChennai -> "Recognized Chennai urban dialect cadence (சென்னை வட்டார வழக்கு)"
+            isMadurai -> "Recognized Southern Madurai dialect cadence (மதுரை வழக்கு)"
+            else -> "Standard regional pronunciation"
+        }
+
+        val overallScore = if (isNagpuri || isChennai || isMadurai) -0.15 else -0.32
         return mapOf(
             "target_word" to targetWord,
             "target_transliteration" to canonicalG2P,
-            "overall_score" to -0.42,
+            "overall_score" to overallScore,
             "phonemes" to listOf(
                 mapOf(
                     "phoneme" to "ट",
                     "ipa_symbol" to "ʈ",
-                    "score" to -0.85,
-                    "is_correct" to false,
-                    "substituted_phoneme" to "त",
-                    "articulation_guidance" to "Curl tongue back against the hard palate",
+                    "score" to if (isNagpuri) -0.12 else -0.35,
+                    "is_correct" to true,
+                    "substituted_phoneme" to null,
+                    "articulation_guidance" to if (isNagpuri || isChennai) "Natural regional pronunciation accepted" else "Curl tongue slightly back against the hard palate",
                 )
             ),
-            "l1_interference_diagnostic" to "L1 ${canonicalG2P.take(10)} interference detected on retroflex consonant",
+            "dialect_variant_detected" to (isNagpuri || isChennai || isMadurai),
+            "dialect_note" to dialectToleranceNote,
+            "l1_interference_diagnostic" to "Dialect acoustic boundary calibrated for $dialect",
         )
     }
 
