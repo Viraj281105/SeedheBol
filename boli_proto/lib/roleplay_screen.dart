@@ -106,6 +106,11 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
 
   @override
   void dispose() {
+    if (_bubbles.length > 2) {
+      _engineChannel.invokeMethod('recordCompletedScenario', {
+        'scenario_id': '${_activePersona.title}: ${widget.scenario}',
+      });
+    }
     _scrollCtrl.dispose();
     super.dispose();
   }

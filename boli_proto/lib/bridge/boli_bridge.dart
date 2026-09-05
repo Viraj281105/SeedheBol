@@ -59,6 +59,14 @@ abstract class IBoliBridge {
 
   // Telemetry & Hardware Info
   Future<Map<String, dynamic>> getHardwareTelemetry();
+
+  // Learner Memory & Personalization API
+  Future<bool> recordWordAttempt({required String word, required bool isCorrect});
+  Future<bool> recordPronunciationWeakness({required String word, required double score, String? phoneme});
+  Future<bool> recordCompletedScenario(String scenarioId);
+  Future<bool> addLearnedVocab(String word);
+  Future<Map<String, dynamic>> getLearnerProfile();
+  Future<bool> updateLearnerProfile({String? l1, String? l2, String? occupation, String? level});
 }
 
 class BoliBridge implements IBoliBridge {
@@ -281,6 +289,80 @@ class BoliBridge implements IBoliBridge {
       'getHardwareTelemetry',
     );
     return result ?? const {};
+  }
+
+  @override
+  Future<bool> recordWordAttempt({
+    required String word,
+    required bool isCorrect,
+  }) async {
+    final result = await _methodChannel.invokeMethod<bool>('recordWordAttempt', {
+      'word': word,
+      'is_correct': isCorrect,
+    });
+    return result ?? false;
+  }
+
+  @override
+  Future<bool> recordPronunciationWeakness({
+    required String word,
+    required double score,
+    String? phoneme,
+  }) async {
+    final result = await _methodChannel.invokeMethod<bool>(
+      'recordPronunciationWeakness',
+      {
+        'word': word,
+        'score': score,
+        'phoneme': phoneme,
+      },
+    );
+    return result ?? false;
+  }
+
+  @override
+  Future<bool> recordCompletedScenario(String scenarioId) async {
+    final result = await _methodChannel.invokeMethod<bool>(
+      'recordCompletedScenario',
+      {'scenario_id': scenarioId},
+    );
+    return result ?? false;
+  }
+
+  @override
+  Future<bool> addLearnedVocab(String word) async {
+    final result = await _methodChannel.invokeMethod<bool>(
+      'addLearnedVocab',
+      {'word': word},
+    );
+    return result ?? false;
+  }
+
+  @override
+  Future<Map<String, dynamic>> getLearnerProfile() async {
+    final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+      'getLearnerProfile',
+    );
+    return result ?? const {};
+  }
+
+  @override
+  Future<bool> updateLearnerProfile({
+    String? l1,
+    String? l2,
+    String? occupation,
+    String? level,
+  }) async {
+    final result = await _methodChannel.invokeMethod<bool>(
+      'updateLearnerProfile',
+      {
+        'l1': l1,
+        'l2': l2,
+        'occupation': occupation,
+        'level': level,
+      },
+    );
+    return result ?? false;
   }
 }
 

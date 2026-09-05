@@ -33,6 +33,21 @@ data class GemmaContext(
 
     /** Current lesson topic for micro-lesson generation — e.g. "numbers 1-10" */
     val learningContext: String? = null,
+
+    /** Words successfully practiced or learned by the user */
+    val learnedVocabulary: List<String> = emptyList(),
+
+    /** Frequently missed words to naturally bring back into future practice and dialogue */
+    val frequentlyMissedWords: List<String> = emptyList(),
+
+    /** Sounds or words with low acoustic pronunciation scores */
+    val pronunciationWeaknesses: List<String> = emptyList(),
+
+    /** Recent practice or conversation context snippets */
+    val recentContext: List<String> = emptyList(),
+
+    /** Scenarios and situations completed by the learner */
+    val completedScenarios: List<String> = emptyList(),
 )
 
 // --------------------------------------------------------------------------

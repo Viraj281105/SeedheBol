@@ -33,6 +33,18 @@ object GemmaPromptBuilder {
         appendLine("You are SeedheBol AI, an on-device language tutor.")
         appendLine("Learner: ${ctx.occupation} | L1: ${ctx.l1} | Learning: ${ctx.l2} | Level: ${ctx.userLevel}")
         ctx.scenario?.let { appendLine("Scenario: $it") }
+        if (ctx.frequentlyMissedWords.isNotEmpty()) {
+            appendLine("Struggling words to reinforce: ${ctx.frequentlyMissedWords.take(4).joinToString(", ")}.")
+        }
+        if (ctx.pronunciationWeaknesses.isNotEmpty()) {
+            appendLine("Pronunciation weaknesses: ${ctx.pronunciationWeaknesses.take(3).joinToString(", ")}.")
+        }
+        if (ctx.learnedVocabulary.isNotEmpty()) {
+            appendLine("Mastered words: ${ctx.learnedVocabulary.takeLast(6).joinToString(", ")}.")
+        }
+        if (ctx.recentContext.isNotEmpty()) {
+            appendLine("Recent context: ${ctx.recentContext.takeLast(2).joinToString(" | ")}.")
+        }
         appendLine("Rules: Short sentences. Simple vocabulary. Offline. No markdown.")
     }
 
@@ -169,6 +181,9 @@ object GemmaPromptBuilder {
             appendLine("TASK: Continue the conversation with the learner.")
             appendLine("Understand the learner's intent semantically even if their ${ctx.l2} grammar is rough or mixed with ${ctx.l1}.")
             appendLine("Keep sentences practical, polite, and spoken as in a real Indian workplace.")
+            if (ctx.frequentlyMissedWords.isNotEmpty()) {
+                appendLine("PERSONALIZATION: The learner previously struggled with: ${ctx.frequentlyMissedWords.take(2).joinToString(", ")}. Naturally invite or use one of these words in your reply if fitting.")
+            }
             appendLine()
             appendLine("Conversation history:")
             for (turn in history.takeLast(6)) {
@@ -203,6 +218,12 @@ object GemmaPromptBuilder {
             appendLine()
             appendLine("TASK: Generate 3 short practice drills for a ${ctx.occupation} worker in $domain.")
             appendLine("Situation: \"$situation\"")
+            if (ctx.frequentlyMissedWords.isNotEmpty()) {
+                appendLine("PERSONALIZATION: The learner has frequently struggled with: ${ctx.frequentlyMissedWords.take(3).joinToString(", ")}. Make sure at least one drill directly uses or reinforces these words!")
+            }
+            if (ctx.pronunciationWeaknesses.isNotEmpty()) {
+                appendLine("TARGET SOUNDS: Focus on sounds the learner finds difficult: ${ctx.pronunciationWeaknesses.take(2).joinToString(", ")}.")
+            }
             appendLine("Format strictly as follows (no markdown bolding):")
             appendLine("D1_PROMPT: <Instruction in ${ctx.l1}, e.g. Say this to your supervisor>")
             appendLine("D1_TARGET: <Sentence in ${ctx.l2}>")

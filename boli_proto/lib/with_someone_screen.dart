@@ -62,6 +62,11 @@ class _WithSomeoneScreenState extends State<WithSomeoneScreen> {
 
   @override
   void dispose() {
+    if (_turns.length > 1) {
+      _engineChannel.invokeMethod('recordCompletedScenario', {
+        'scenario_id': 'सोबत सराव (Peer Practice with Someone)',
+      });
+    }
     _scrollCtrl.dispose();
     super.dispose();
   }

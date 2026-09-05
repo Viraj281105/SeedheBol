@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'bridge/boli_bridge.dart';
 import 'data.dart';
 import 'success_screen.dart';
 import 'theme.dart';
@@ -44,12 +45,23 @@ class _PracticeScreenState extends State<PracticeScreen> {
         _review.add(_ex.marathi);
       }
     });
+
+    // Record attempt in offline local memory for Gemma personalization
+    if (_ex.marathi.isNotEmpty) {
+      BoliBridge.instance.recordWordAttempt(
+        word: _ex.marathi,
+        isCorrect: ok,
+      );
+    }
+
     HapticFeedback.selectionClick();
   }
 
   void _next() {
     if (_i + 1 >= widget.situation.exercises.length) {
       setState(() => _done = true);
+      // Record completed situation in learner memory
+      BoliBridge.instance.recordCompletedScenario(widget.situation.title);
       return;
     }
     setState(() {
@@ -515,6 +527,15 @@ class _SpeakState extends State<_Speak> {
         _score = s;
         _busy = false;
       });
+
+      // Record acoustic pronunciation score in offline memory
+      if (widget.ex.marathi.isNotEmpty) {
+        BoliBridge.instance.recordPronunciationWeakness(
+          word: widget.ex.marathi,
+          score: s,
+        );
+      }
+
       widget.onGrade(s >= .55, note: s >= .55 ? '' : widget.ex.marathi);
     } on PlatformException catch (e) {
       if (!mounted) return;

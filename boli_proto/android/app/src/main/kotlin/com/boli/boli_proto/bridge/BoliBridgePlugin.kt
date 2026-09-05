@@ -8,6 +8,7 @@ import com.boli.boli_proto.DeterministicFallback
 import com.boli.boli_proto.DialogueTurn
 import com.boli.boli_proto.GemmaContext
 import com.boli.boli_proto.GemmaEngine
+import com.boli.boli_proto.LearnerMemoryStore
 import com.boli.boli_proto.MlKitOcr
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
@@ -60,6 +61,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var aiLayer: BoliAiLayer
     private lateinit var fallback: DeterministicFallback
     private lateinit var ocr: MlKitOcr
+    private lateinit var memoryStore: LearnerMemoryStore
 
     /** Active session context — updated by initializeEngine and user profile. */
     private var sessionCtx = GemmaContext()
@@ -79,6 +81,8 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         gemmaEngine = GemmaEngine(context)
         aiLayer = BoliAiLayer(gemmaEngine, fallback)
         ocr = MlKitOcr()
+        memoryStore = LearnerMemoryStore(context)
+        sessionCtx = memoryStore.buildPersonalizedGemmaContext()
 
         // Warm up Gemma on a background thread (same pattern as ASR/TTS in MainActivity)
         pluginScope.launch(Dispatchers.IO) {
@@ -136,28 +140,35 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
 
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
-            "initializeEngine"       -> handleInitializeEngine(call, result)
-            "startListening"         -> handleStartListening(result)
-            "stopListening"          -> handleStopListening(result)
-            "cancelListening"        -> handleCancelListening(result)
-            "scorePronunciation"     -> handleScorePronunciation(call, result)
-            "submitUserUtterance"    -> handleSubmitUserUtterance(call, result)
-            "speakPrompt"            -> handleSpeakPrompt(call, result)
-            "stopSpeaking"           -> handleStopSpeaking(result)
-            "startAmbientMining"     -> handleStartAmbientMining(result)
-            "stopAmbientMining"      -> handleStopAmbientMining(result)
-            "isAmbientMiningActive"  -> result.success(false)
+            "initializeEngine"            -> handleInitializeEngine(call, result)
+            "startListening"              -> handleStartListening(result)
+            "stopListening"               -> handleStopListening(result)
+            "cancelListening"             -> handleCancelListening(result)
+            "scorePronunciation"          -> handleScorePronunciation(call, result)
+            "submitUserUtterance"         -> handleSubmitUserUtterance(call, result)
+            "speakPrompt"                 -> handleSpeakPrompt(call, result)
+            "stopSpeaking"                -> handleStopSpeaking(result)
+            "startAmbientMining"          -> handleStartAmbientMining(result)
+            "stopAmbientMining"           -> handleStopAmbientMining(result)
+            "isAmbientMiningActive"       -> result.success(false)
             // OCR — now wired to MlKitOcr
-            "extractTextFromImage"   -> handleExtractTextFromImage(call, result)
+            "extractTextFromImage"        -> handleExtractTextFromImage(call, result)
             // NEW: Gemma-powered flows
-            "generateLessonFromOcr"  -> handleGenerateLessonFromOcr(call, result)
-            "translateText"          -> handleTranslateText(call, result)
-            "getExplanation"         -> handleGetExplanation(call, result)
-            "generatePracticeDrills" -> handleGeneratePracticeDrills(call, result)
-            "coachPeerTurn"          -> handleCoachPeerTurn(call, result)
-            "isGemmaAvailable"       -> result.success(gemmaEngine.isAvailable)
-            "getHardwareTelemetry"   -> handleGetHardwareTelemetry(result)
-            else                     -> result.notImplemented()
+            "generateLessonFromOcr"       -> handleGenerateLessonFromOcr(call, result)
+            "translateText"               -> handleTranslateText(call, result)
+            "getExplanation"              -> handleGetExplanation(call, result)
+            "generatePracticeDrills"      -> handleGeneratePracticeDrills(call, result)
+            "coachPeerTurn"               -> handleCoachPeerTurn(call, result)
+            "isGemmaAvailable"            -> result.success(gemmaEngine.isAvailable)
+            "getHardwareTelemetry"        -> handleGetHardwareTelemetry(result)
+            // Learner Memory & Personalization API
+            "recordWordAttempt"           -> handleRecordWordAttempt(call, result)
+            "recordPronunciationWeakness" -> handleRecordPronunciationWeakness(call, result)
+            "recordCompletedScenario"     -> handleRecordCompletedScenario(call, result)
+            "addLearnedVocab"             -> handleAddLearnedVocab(call, result)
+            "getLearnerProfile"           -> handleGetLearnerProfile(result)
+            "updateLearnerProfile"        -> handleUpdateLearnerProfile(call, result)
+            else                          -> result.notImplemented()
         }
     }
 
@@ -169,13 +180,14 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val corridor = call.argument<String>("corridor") ?: "bhojpuriMarathi"
         val domain = call.argument<String>("domain") ?: "construction"
 
-        // Update session context from onboarding data
-        sessionCtx = sessionCtx.copy(
-            l1 = call.argument<String>("l1") ?: sessionCtx.l1,
-            l2 = call.argument<String>("l2") ?: sessionCtx.l2,
-            occupation = call.argument<String>("occupation") ?: sessionCtx.occupation,
-            userLevel = call.argument<String>("level") ?: sessionCtx.userLevel,
-        )
+        // Update persistent memory store from onboarding/session data
+        val l1 = call.argument<String>("l1") ?: sessionCtx.l1
+        val l2 = call.argument<String>("l2") ?: sessionCtx.l2
+        val occupation = call.argument<String>("occupation") ?: sessionCtx.occupation
+        val level = call.argument<String>("level") ?: sessionCtx.userLevel
+
+        memoryStore.updateProfile(l1 = l1, l2 = l2, occupation = occupation, userLevel = level)
+        sessionCtx = memoryStore.buildPersonalizedGemmaContext()
         conversationHistory.clear()
 
         pluginScope.launch {
@@ -210,7 +222,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     }
 
     // -------------------------------------------------------------------------
-    // Roleplay — now Gemma-powered with deterministic fallback
+    // Roleplay — now Gemma-powered with deterministic fallback & learner memory
     // -------------------------------------------------------------------------
 
     private fun handleSubmitUserUtterance(call: MethodCall, result: Result) {
@@ -219,7 +231,9 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val userSpokenText = call.argument<String>("user_spoken_text") ?: ""
 
         pluginScope.launch {
-            val scenarioCtx = sessionCtx.copy(scenario = situationId)
+            // Track user utterance in local memory
+            memoryStore.addRecentContext("Learner said: $userSpokenText")
+            val scenarioCtx = memoryStore.buildPersonalizedGemmaContext(scenario = situationId)
             val response = aiLayer.nextRoleplayTurn(
                 history = conversationHistory.toList(),
                 situationId = situationId,
@@ -310,12 +324,19 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val topicHint = call.argument<String>("topic_hint")
 
         pluginScope.launch {
-            val ctx = sessionCtx.copy(
-                ocrText = ocrText,
+            val ctx = memoryStore.buildPersonalizedGemmaContext(
                 scenario = topicHint ?: sessionCtx.scenario,
+                ocrText = ocrText,
             )
             val response = aiLayer.generateLessonFromOcr(ocrText, ctx)
             val lesson = response.value
+
+            // Auto-record extracted vocabulary into learner memory
+            lesson.vocabulary.forEach { v ->
+                memoryStore.addLearnedVocab(v.l2Word)
+            }
+            memoryStore.addRecentContext("OCR: ${lesson.topic}")
+
             val resultMap = mapOf(
                 "topic" to lesson.topic,
                 "translation" to lesson.translation,
@@ -339,7 +360,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     private fun handleTranslateText(call: MethodCall, result: Result) {
         val text = call.argument<String>("text") ?: ""
         pluginScope.launch {
-            val ctx = sessionCtx.copy(ocrText = text)
+            val ctx = memoryStore.buildPersonalizedGemmaContext(ocrText = text)
             val response = aiLayer.translateOcrText(text, ctx)
             withContext(Dispatchers.Main) {
                 result.success(mapOf(
@@ -354,7 +375,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     private fun handleGetExplanation(call: MethodCall, result: Result) {
         val phrase = call.argument<String>("phrase") ?: ""
         pluginScope.launch {
-            val response = aiLayer.getExplanation(phrase, sessionCtx)
+            val response = aiLayer.getExplanation(phrase, memoryStore.buildPersonalizedGemmaContext())
             withContext(Dispatchers.Main) {
                 result.success(mapOf(
                     "explanation" to response.value,
@@ -367,10 +388,11 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
 
     private fun handleGeneratePracticeDrills(call: MethodCall, result: Result) {
         val situation = call.argument<String>("situation") ?: "General Work"
-        val domain = call.argument<String>("domain") ?: sessionCtx.occupation
+        val domain = call.argument<String>("domain") ?: memoryStore.occupation
         pluginScope.launch {
-            val ctx = sessionCtx.copy(scenario = situation, occupation = domain)
+            val ctx = memoryStore.buildPersonalizedGemmaContext(scenario = situation).copy(occupation = domain)
             val response = aiLayer.generateDynamicExercises(situation, domain, ctx)
+            memoryStore.addRecentContext("Practiced situation: $situation")
             val mapped = response.value.map { ex ->
                 mapOf(
                     "kind" to ex.kind,
@@ -396,7 +418,9 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val spokenText = call.argument<String>("spoken_text") ?: ""
         val speakerRole = call.argument<String>("speaker_role") ?: "Learner"
         pluginScope.launch {
-            val response = aiLayer.coachPeerTurn(spokenText, speakerRole, sessionCtx)
+            val ctx = memoryStore.buildPersonalizedGemmaContext()
+            val response = aiLayer.coachPeerTurn(spokenText, speakerRole, ctx)
+            memoryStore.addRecentContext("$speakerRole said: $spokenText")
             val coach = response.value
             withContext(Dispatchers.Main) {
                 result.success(mapOf(
@@ -411,6 +435,50 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
                 ))
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Learner Memory & Personalization API
+    // -------------------------------------------------------------------------
+
+    private fun handleRecordWordAttempt(call: MethodCall, result: Result) {
+        val word = call.argument<String>("word") ?: ""
+        val isCorrect = call.argument<Boolean>("is_correct") ?: true
+        memoryStore.recordWordAttempt(word, isCorrect)
+        result.success(true)
+    }
+
+    private fun handleRecordPronunciationWeakness(call: MethodCall, result: Result) {
+        val word = call.argument<String>("word") ?: ""
+        val score = call.argument<Double>("score") ?: 0.5
+        val phoneme = call.argument<String>("phoneme")
+        memoryStore.recordPronunciationWeakness(word, score, phoneme)
+        result.success(true)
+    }
+
+    private fun handleRecordCompletedScenario(call: MethodCall, result: Result) {
+        val scenarioId = call.argument<String>("scenario_id") ?: ""
+        memoryStore.recordCompletedScenario(scenarioId)
+        result.success(true)
+    }
+
+    private fun handleAddLearnedVocab(call: MethodCall, result: Result) {
+        val word = call.argument<String>("word") ?: ""
+        memoryStore.addLearnedVocab(word)
+        result.success(true)
+    }
+
+    private fun handleGetLearnerProfile(result: Result) {
+        result.success(memoryStore.toMap())
+    }
+
+    private fun handleUpdateLearnerProfile(call: MethodCall, result: Result) {
+        val l1 = call.argument<String>("l1")
+        val l2 = call.argument<String>("l2")
+        val occupation = call.argument<String>("occupation")
+        val level = call.argument<String>("level")
+        memoryStore.updateProfile(l1, l2, occupation, level)
+        result.success(true)
     }
 
     // -------------------------------------------------------------------------

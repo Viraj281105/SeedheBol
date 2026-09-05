@@ -497,6 +497,7 @@ class _HeroLessonSheet extends StatefulWidget {
 
 class _HeroLessonSheetState extends State<_HeroLessonSheet> {
   static const _asrChannel = MethodChannel('boli/asr');
+  static const _engineChannel = MethodChannel('boli/engine_methods');
 
   // Practice state
   String _activeTarget = '';
@@ -595,6 +596,18 @@ class _HeroLessonSheetState extends State<_HeroLessonSheet> {
         _score = sim;
         _micBusy = false;
       });
+
+      // Track attempt and pronunciation in offline learner memory
+      if (_activeTarget.isNotEmpty) {
+        _engineChannel.invokeMethod('recordWordAttempt', {
+          'word': _activeTarget,
+          'is_correct': sim >= 0.65,
+        });
+        _engineChannel.invokeMethod('recordPronunciationWeakness', {
+          'word': _activeTarget,
+          'score': sim,
+        });
+      }
     } on PlatformException catch (e) {
       if (!mounted) return;
       setState(() {
