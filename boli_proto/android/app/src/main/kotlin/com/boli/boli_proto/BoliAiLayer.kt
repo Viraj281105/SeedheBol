@@ -59,6 +59,7 @@ class BoliAiLayer(
             val trimmed = line.trim()
                 .replace(Regex("^[•*\\-—_~|#]+\\s*"), "") // strip leading bullet chars
                 .replace(Regex("\\s*[•*\\-—_~|#]+$"), "") // strip trailing bullet chars
+                .replace(Regex("^\\d+[.,)\\-\\s]+\\s*"), "") // strip leading list numbering like "18, " or "19. "
                 .trim()
 
             // Ignore empty or 1-character stray symbols (e.g. ".", "|")
@@ -316,6 +317,84 @@ class BoliAiLayer(
         }
         // Fallback: preserve original stub response
         return deterministic.nextRoleplayTurn(historyWithUser, situationId, currentNodeId, ctx)
+    }
+
+    /**
+     * Generates a dynamic, authentic Gemma opening line for a roleplay persona.
+     * Falls back to the hardcoded persona opener when Gemma is unavailable.
+     *
+     * @return Pair<l2Text, l1Text> — the persona's opening line in L2 and its L1 meaning.
+     */
+    suspend fun generateRoleplayOpener(
+        persona: String,
+        scenario: String,
+        ctx: GemmaContext,
+        fallbackL2: String,
+        fallbackL1: String,
+    ): Pair<String, String> {
+        if (gemma.isAvailable) {
+            val prompt = GemmaPromptBuilder.buildRoleplayOpenerPrompt(persona, scenario, ctx)
+            val raw = gemma.generate(prompt, temperature = GemmaEngine.ROLEPLAY_TEMPERATURE)
+            if (!raw.isNullOrBlank()) {
+                val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+                val l2 = findTagValue(lines, "L2") ?: ""
+                val l1 = findTagValue(lines, "L1") ?: ""
+                if (l2.isNotBlank() && LlmOutputSanitizer.isValidL2Output(l2, ctx.l2)) {
+                    Log.i(TAG, "Gemma roleplay opener: $l2")
+                    return Pair(l2, l1.ifBlank { fallbackL1 })
+                }
+            }
+        }
+        return Pair(fallbackL2, fallbackL1)
+    }
+
+    data class SpokenIntentResult(
+        val isMatched: Boolean,
+        val confidence: Double,
+        val feedback: String,
+        val betterWay: String,
+        val source: String,
+    )
+
+    /**
+     * Evaluates user's spoken answer semantically using Gemma, tolerating variations,
+     * accents, and synonyms. Falls back to DeterministicFallback when unavailable.
+     */
+    suspend fun evaluateSpokenIntent(
+        targetPhrase: String,
+        prompt: String,
+        spokenText: String,
+        ctx: GemmaContext,
+    ): AiResponse<SpokenIntentResult> {
+        val t0 = System.currentTimeMillis()
+        if (gemma.isAvailable && spokenText.isNotBlank()) {
+            val evalPrompt = GemmaPromptBuilder.buildEvaluateSpokenIntentPrompt(targetPhrase, prompt, spokenText, ctx)
+            val raw = gemma.generate(evalPrompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            if (!raw.isNullOrBlank()) {
+                val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+                val matchVal = findTagValue(lines, "MATCH") ?: ""
+                val feedback = findTagValue(lines, "FEEDBACK") ?: ""
+                val better = findTagValue(lines, "BETTER") ?: targetPhrase
+                val isMatched = matchVal.contains("YES", ignoreCase = true) || matchVal.contains("TRUE", ignoreCase = true)
+                val result = SpokenIntentResult(
+                    isMatched = isMatched,
+                    confidence = if (isMatched) 0.90 else 0.40,
+                    feedback = feedback.ifBlank { if (isMatched) "अर्थ योग्य आहे!" else "वाक्य पुन्हा बोलण्याचा प्रयत्न करा." },
+                    betterWay = better,
+                    source = "gemma",
+                )
+                return AiResponse(result, AiSource.GEMMA, System.currentTimeMillis() - t0)
+            }
+        }
+        val fallbackMap = deterministic.evaluateSpokenIntent(targetPhrase, prompt, spokenText, ctx)
+        val result = SpokenIntentResult(
+            isMatched = fallbackMap["is_matched"] as? Boolean ?: false,
+            confidence = (fallbackMap["confidence"] as? Number)?.toDouble() ?: 0.5,
+            feedback = fallbackMap["feedback"] as? String ?: "",
+            betterWay = fallbackMap["better_way"] as? String ?: targetPhrase,
+            source = "fallback",
+        )
+        return AiResponse(result, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
     }
 
     // -------------------------------------------------------------------------

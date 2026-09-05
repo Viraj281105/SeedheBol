@@ -194,19 +194,66 @@ class DeterministicFallback {
         val userText = history.lastOrNull { it.speaker == "user" }?.text ?: ""
         val l2 = ctx.l2.lowercase()
 
+        val userLower = userText.lowercase()
         val roleplayData = when {
-            l2.startsWith("mr") || l2.contains("marathi") -> FallbackRoleplayData(
-                l2 = "होय, काम वेळेवर पूर्ण झाले पाहिजे. साहित्याची तपासणी केली का?",
-                l1 = "हाँ, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
-                better = "होय, मी काम पूर्ण करून तपासणी केली आहे.",
-                hint = "‘ळ’ चा उच्चार स्पष्ट करा, जिभेचा शेंडा टाळूला लावा."
-            )
-            l2.startsWith("hi") || l2.contains("hindi") -> FallbackRoleplayData(
-                l2 = "हाँ, काम समय पर पूरा होना चाहिए। क्या आपने सामान की जांच कर ली?",
-                l1 = "हाँ, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
-                better = "हाँ, मैंने काम पूरा करके जांच कर ली है।",
-                hint = "स्पष्ट आवाज में बोलें।"
-            )
+            (l2.startsWith("mr") || l2.contains("marathi") || l2.startsWith("hi") || l2.contains("hindi")) -> {
+                when {
+                    userLower.contains("पाणी") || userLower.contains("पानी") || userLower.contains("water") || userLower.contains("तहान") -> FallbackRoleplayData(
+                        l2 = "पिण्याचे पाणी समोरच्या टाकीजवळ आहे. तिथे जाऊन स्वच्छ पाणी घ्या.",
+                        l1 = "पीने का पानी सामने वाली टंकी के पास है। वहां जाकर साफ पानी ले लीजिए।",
+                        better = "मला पिण्यासाठी थोडे पाणी मिळेल का?",
+                        hint = "‘पाणी’ मधील ‘णी’ चा उच्चार स्पष्ट करा."
+                    )
+                    userLower.contains("सिमेंट") || userLower.contains("सामान") || userLower.contains("विटा") || userLower.contains("रेती") -> FallbackRoleplayData(
+                        l2 = "सामान गोदामात ठेवले आहे. हवी तेवढी पोती घेऊन या आणि नोंद करा.",
+                        l1 = "सामान गोदाम में रखा है। जितनी बोरियां चाहिए ले आएं और रजिस्टर में लिख दें।",
+                        better = "मला कामासाठी नवीन साहित्य हवे आहे.",
+                        hint = "‘गोदाम’ आणि ‘साहित्य’ स्पष्ट बोला."
+                    )
+                    userLower.contains("चहा") || userLower.contains("चाय") || userLower.contains("जेवण") || userLower.contains("सुट्टी") || userLower.contains("भूख") -> FallbackRoleplayData(
+                        l2 = "हो, आता जेवणाची सुट्टी झाली आहे. अर्ध्या तासात चहा पिऊन परत या.",
+                        l1 = "हाँ, अब दोपहर की छुट्टी हो गई है। आधे घंटे में चाय पीकर वापस आ जाएं।",
+                        better = "आता जेवणाची वेळ झाली आहे का?",
+                        hint = "‘सुट्टी’ मधील ‘ट्ट’ वर थोडा जोर द्या."
+                    )
+                    userLower.contains("पैसे") || userLower.contains("पगार") || userLower.contains("मजुरी") || userLower.contains("रुपये") -> FallbackRoleplayData(
+                        l2 = "हिशोब तयार आहे. आज संध्याकाळी ५ वाजता ऑफिसमध्ये येऊन तुमची मजुरी घ्या.",
+                        l1 = "हिसाब तैयार है। आज शाम ५ बजे ऑफिस में आकर अपनी मजदूरी ले लीजिए।",
+                        better = "माझ्या या आठवड्याचा पगार कधी मिळेल?",
+                        hint = "‘मजुरी’ किंवा ‘पगार’ नम्रतेने उच्चारा."
+                    )
+                    userLower.contains("वेळ") || userLower.contains("उशीर") || userLower.contains("शिफ्ट") || userLower.contains("घंटा") -> FallbackRoleplayData(
+                        l2 = "ठीक आहे, आज अर्धा तास उशीर झाला तरी चालेल, पण काम सुरक्षित करा.",
+                        l1 = "ठीक है, आज आधा घंटा देर हो जाए तो भी चलेगा, लेकिन काम सावधानी से करें।",
+                        better = "मला काम पूर्ण करण्यासाठी आणखी ३० मिनिटे लागतील.",
+                        hint = "‘वेळ’ मधील ‘ळ’ चा उच्चार टाळूला जीभ लावून करा."
+                    )
+                    userLower.contains("आजारी") || userLower.contains("तब्येत") || userLower.contains("दवाखाना") || userLower.contains("डॉक्टर") -> FallbackRoleplayData(
+                        l2 = "काळजी घ्या. आधी फर्स्ट एड बॉक्समधून मलम लावा किंवा दवाखान्यात जाऊन या.",
+                        l1 = "ध्यान रखें। पहले फर्स्ट एड बॉक्स से मलहम लगाएं या डॉक्टर को दिखा लें।",
+                        better = "माझी तब्येत बरी नाही, मला दवाखान्यात जायचे आहे.",
+                        hint = "‘काळजी’ चा उच्चार स्पष्ट करा."
+                    )
+                    userLower.contains("नमस्ते") || userLower.contains("नमस्कार") || userLower.contains("राम") || userLower.contains("hello") || userLower.contains("hi") -> FallbackRoleplayData(
+                        l2 = "नमस्ते भाऊ! बोला, आज कामावर काय मदत हवी किंवा काही अडचण आहे का?",
+                        l1 = "नमस्ते भाई! बोलिए, आज काम पर क्या मदद चाहिए या कोई परेशानी है?",
+                        better = "नमस्ते साहेब, आजचे काम काय आहे?",
+                        hint = "‘नमस्ते’ स्पष्ट आणि नम्र स्वरात बोला."
+                    )
+                    userLower.contains("झाले") || userLower.contains("पूर्ण") || userLower.contains("संपले") || userLower.contains("done") -> FallbackRoleplayData(
+                        l2 = "खूप छान! काम नीट झाले आहे. आता पुढील कामाची नोंद करून विश्रांती घ्या.",
+                        l1 = "बहुत बढ़िया! काम ठीक से हो गया। अब अगले काम की एंट्री करके थोड़ा आराम कर लें।",
+                        better = "साहेब, मी दिलेले काम पूर्ण केले आहे. तपासून पाहा.",
+                        hint = "‘पूर्ण’ चा रफार स्पष्ट उच्चारा."
+                    )
+                    else -> FallbackRoleplayData(
+                        l2 = "होय, समजले. कामाची काळजी घ्या आणि काही मदत लागल्यास मला लगेच सांगा.",
+                        l1 = "हाँ, समझ गया। काम का ध्यान रखें और कोई मदद चाहिए तो मुझे तुरंत बताएं।",
+                        better = "होय साहेब, मी कामाची काळजी घेईन.",
+                        hint = "‘काळजी’ चा उच्चार टाळूच्या मध्यभागी जीभ लावून करा."
+                    )
+                }
+            }
             l2.startsWith("te") || l2.contains("telugu") -> FallbackRoleplayData(
                 l2 = "సరే, పని సమయానికి పూర్తి కావాలి. సామగ్రిని తనిખీ చేశారా?",
                 l1 = "ठीक है, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
@@ -266,6 +313,40 @@ class DeterministicFallback {
             "natural_phrasing" to roleplayData.better,
             "intent_explanation" to "कामाविषयी संवाद साधला.",
             "ai_source" to "fallback",
+        )
+    }
+
+    // --------------------------------------------------------------------------
+    // Semantic Speech Evaluation Fallback
+    // --------------------------------------------------------------------------
+
+    fun evaluateSpokenIntent(
+        targetPhrase: String,
+        prompt: String,
+        spokenText: String,
+        ctx: GemmaContext,
+    ): Map<String, Any> {
+        val s = spokenText.trim().lowercase()
+        val t = targetPhrase.trim().lowercase()
+        val p = prompt.trim().lowercase()
+
+        // Extract significant words
+        val targetWords = t.split(Regex("[\\s,।?.!]+")).filter { it.length >= 3 }
+        val promptWords = p.split(Regex("[\\s,।?.!]+")).filter { it.length >= 3 }
+        val spokenWords = s.split(Regex("[\\s,।?.!]+")).filter { it.length >= 3 }
+
+        val overlap = spokenWords.count { sw ->
+            targetWords.any { tw -> tw.contains(sw) || sw.contains(tw) } ||
+            promptWords.any { pw -> pw.contains(sw) || sw.contains(pw) }
+        }
+
+        val isMatched = overlap >= 1 || (s.length >= 4 && (t.contains(s) || s.contains(t)))
+        return mapOf(
+            "is_matched" to isMatched,
+            "confidence" to if (isMatched) 0.85 else 0.30,
+            "feedback" to if (isMatched) "अर्थ योग्य आहे! (Meaning understood!)" else "वाक्य पुन्हा बोलण्याचा प्रयत्न करा.",
+            "better_way" to targetPhrase,
+            "source" to "fallback",
         )
     }
 

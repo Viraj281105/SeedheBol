@@ -117,10 +117,51 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
 
   Future<void> _checkGemmaAvailability() async {
     try {
-      final available = await _engineChannel.invokeMethod<bool>('isGemmaAvailable') ?? false;
-      if (mounted) setState(() => _gemmaAvailable = available);
+      final available =
+          await _engineChannel.invokeMethod<bool>('isGemmaAvailable') ?? false;
+      if (mounted) {
+        setState(() => _gemmaAvailable = available);
+        // Now that we know Gemma is available, regenerate the opener dynamically.
+        if (available && _bubbles.length == 1) {
+          _upgradeOpenerWithGemma(_activePersona);
+        }
+      }
     } on PlatformException {
       // non-fatal
+    }
+  }
+
+  /// Shows the hardcoded opener immediately, then silently upgrades it with
+  /// a Gemma-generated opener once the engine confirms availability.
+  Future<void> _upgradeOpenerWithGemma(_RoleplayPersona persona) async {
+    try {
+      final res = await _engineChannel.invokeMapMethod<String, dynamic>(
+        'generateRoleplayOpener',
+        {
+          'persona': persona.title,
+          'scenario': widget.scenario,
+          'fallback_l2': persona.openerL2,
+          'fallback_l1': persona.openerL1,
+        },
+      );
+      if (!mounted) return;
+      final l2 = res?['opener_l2'] as String? ?? '';
+      final l1 = res?['opener_l1'] as String? ?? '';
+      if (l2.isNotEmpty && _bubbles.isNotEmpty) {
+        setState(() {
+          // Replace the placeholder opener bubble with the Gemma-generated one
+          _bubbles[0] = _ChatBubble.bot(
+            l2Text: l2,
+            l1Text: l1,
+            speakerName: persona.title,
+            aiSource: 'gemma',
+          );
+        });
+        // Re-speak the Gemma opener
+        _speak(l2);
+      }
+    } on PlatformException {
+      // Non-fatal: keep the hardcoded opener
     }
   }
 
@@ -128,6 +169,9 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
     setState(() {
       _activePersona = persona;
       _bubbles.clear();
+      // Show hardcoded opener immediately so there's no blank screen.
+      // If Gemma is already confirmed available, upgrade it right away.
+      // Otherwise _checkGemmaAvailability will upgrade it after the check.
       _bubbles.add(_ChatBubble.bot(
         l2Text: persona.openerL2,
         l1Text: persona.openerL1,
@@ -136,6 +180,10 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
       ));
     });
     Future.delayed(const Duration(milliseconds: 300), () => _speak(persona.openerL2));
+    // If Gemma is already confirmed available (e.g. switching personas), upgrade now.
+    if (_gemmaAvailable) {
+      _upgradeOpenerWithGemma(persona);
+    }
   }
 
   Future<void> _listen() async {

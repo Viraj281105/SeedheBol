@@ -67,21 +67,29 @@ class MlKitOcr {
      * Callers that already know the script can pass [preferredScript] to skip
      * the Devanagari attempt when Latin is expected.
      */
+    data class CropRect(
+        val left: Float = 0f,
+        val top: Float = 0f,
+        val width: Float = 1f,
+        val height: Float = 1f,
+    )
+
     /**
      * Recognizes text in [imageBytes] (JPEG or PNG, typical camera capture).
      *
      * Strategy:
-     *   1. Determine image orientation from EXIF metadata.
-     *   2. Try Devanagari first with correct rotation.
-     *   3. If Devanagari yields no text and rotation might be missing, try rotated passes.
+     *   1. Determine image orientation from EXIF metadata and rotate upright.
+     *   2. If [cropRect] is specified, crop the upright image strictly to the viewfinder box.
+     *   3. Try Devanagari first with correct rotation.
      *   4. Fall back to Latin recognizer.
      *   5. If both are empty, return OcrResult with isEmpty=true.
      */
     suspend fun recognizeBytes(
         imageBytes: ByteArray,
         preferredScript: Script = Script.DEVANAGARI,
+        cropRect: CropRect? = null,
     ): OcrResult {
-        val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+        val rawBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
             ?: return OcrResult("", Script.NONE, false).also {
                 Log.e(TAG, "Failed to decode image bytes into Bitmap")
             }
@@ -97,18 +105,40 @@ class MlKitOcr {
             }
         }.getOrDefault(0)
 
-        Log.i(TAG, "recognizeBytes: image size=${bitmap.width}x${bitmap.height}, exifRotation=$exifRotation°")
+        // Rotate bitmap upright first so coordinates match the portrait viewfinder
+        val uprightBitmap = if (exifRotation != 0) {
+            val matrix = android.graphics.Matrix()
+            matrix.postRotate(exifRotation.toFloat())
+            android.graphics.Bitmap.createBitmap(
+                rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
+            )
+        } else {
+            rawBitmap
+        }
+
+        // Crop to the bounding box if provided
+        val targetBitmap = if (cropRect != null && (cropRect.width < 0.99f || cropRect.height < 0.99f)) {
+            val x = (cropRect.left * uprightBitmap.width).toInt().coerceIn(0, uprightBitmap.width - 1)
+            val y = (cropRect.top * uprightBitmap.height).toInt().coerceIn(0, uprightBitmap.height - 1)
+            val w = (cropRect.width * uprightBitmap.width).toInt().coerceIn(1, uprightBitmap.width - x)
+            val h = (cropRect.height * uprightBitmap.height).toInt().coerceIn(1, uprightBitmap.height - y)
+            Log.i(TAG, "Cropping upright bitmap (${uprightBitmap.width}x${uprightBitmap.height}) to rect [$x, $y, $w, $h]")
+            android.graphics.Bitmap.createBitmap(uprightBitmap, x, y, w, h)
+        } else {
+            uprightBitmap
+        }
+
+        Log.i(TAG, "recognizeBytes: target size=${targetBitmap.width}x${targetBitmap.height}, exifRotation=$exifRotation°")
 
         if (preferredScript == Script.DEVANAGARI) {
-            // First attempt with EXIF rotation
-            var image = InputImage.fromBitmap(bitmap, exifRotation)
+            var image = InputImage.fromBitmap(targetBitmap, 0)
             var devResult = runRecognizer(devanagariRecognizer, image).trim()
 
-            // If empty or negligible text, try other 90-degree rotations in case EXIF was absent or tilted
-            if (devResult.length < 3) {
-                val candidateRotations = listOf(90, 270, 180, 0).filter { it != exifRotation }
+            // If empty or negligible text and no explicit crop was given, try other 90-degree rotations
+            if (devResult.length < 3 && cropRect == null) {
+                val candidateRotations = listOf(90, 270, 180).filter { it != 0 }
                 for (rot in candidateRotations) {
-                    val retryImage = InputImage.fromBitmap(bitmap, rot)
+                    val retryImage = InputImage.fromBitmap(targetBitmap, rot)
                     val retryResult = runRecognizer(devanagariRecognizer, retryImage).trim()
                     if (retryResult.length > devResult.length) {
                         Log.i(TAG, "Devanagari OCR improved at rotation=$rot°: ${retryResult.length} chars")
@@ -129,7 +159,7 @@ class MlKitOcr {
                 return OcrResult(latinResult, Script.LATIN, latinResult.isNotEmpty())
             }
         } else {
-            val image = InputImage.fromBitmap(bitmap, exifRotation)
+            val image = InputImage.fromBitmap(targetBitmap, 0)
             val latinResult = runRecognizer(latinRecognizer, image).trim()
             return OcrResult(latinResult, Script.LATIN, latinResult.isNotEmpty())
         }

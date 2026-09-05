@@ -593,6 +593,9 @@ class _SpeakState extends State<_Speak> {
   String _error = '';
   double _score = 0;
   PhoneticDiagnosticResult? _diagnostic;
+  bool _semanticMatch = false;
+  String _semanticFeedback = '';
+  String _betterWay = '';
 
   double _similarity(String a, String b) {
     String norm(String s) => s.replaceAll(RegExp(r'[\s।,.?!]'), '');
@@ -626,6 +629,9 @@ class _SpeakState extends State<_Speak> {
       _heard = '';
       _error = '';
       _diagnostic = null;
+      _semanticMatch = false;
+      _semanticFeedback = '';
+      _betterWay = '';
     });
     try {
       final text =
@@ -645,10 +651,33 @@ class _SpeakState extends State<_Speak> {
       final rawSim = _similarity(text, widget.ex.marathi);
       final s = diag.score > 0 ? (diag.score * 0.5 + rawSim * 0.5) : rawSim;
 
+      bool ok = s >= .55;
+      bool semMatch = false;
+      String semFeedback = '';
+      String semBetter = '';
+
+      if (!ok && text.trim().isNotEmpty) {
+        // Evaluate semantic intent using Gemma AI / intelligent fallback
+        final eval = await BoliBridge.instance.evaluateSpokenIntent(
+          targetPhrase: widget.ex.marathi,
+          prompt: widget.ex.prompt,
+          spokenText: text,
+        );
+        if (eval['is_matched'] == true) {
+          semMatch = true;
+          ok = true;
+          semFeedback = eval['feedback'] as String? ?? 'अर्थ योग्य आहे! (Meaning understood!)';
+          semBetter = eval['better_way'] as String? ?? '';
+        }
+      }
+
       setState(() {
         _heard = text.isEmpty ? '—' : text;
-        _score = s;
+        _score = semMatch ? math.max(s, 0.78) : s;
         _diagnostic = diag;
+        _semanticMatch = semMatch;
+        _semanticFeedback = semFeedback;
+        _betterWay = semBetter;
         _busy = false;
       });
 
@@ -656,12 +685,12 @@ class _SpeakState extends State<_Speak> {
       if (widget.ex.marathi.isNotEmpty) {
         BoliBridge.instance.recordPronunciationWeakness(
           word: widget.ex.marathi,
-          score: s,
+          score: semMatch ? math.max(s, 0.78) : s,
           phoneme: diag.weakPhonemes.isNotEmpty ? diag.weakPhonemes.first : null,
         );
       }
 
-      widget.onGrade(s >= .55, note: s >= .55 ? '' : widget.ex.marathi);
+      widget.onGrade(ok, note: ok ? (semMatch ? 'अर्थ समजला!' : '') : widget.ex.marathi);
     } on PlatformException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -711,6 +740,9 @@ class _SpeakState extends State<_Speak> {
           score: _score,
           target: widget.ex.marathi,
           diagnostic: _diagnostic,
+          semanticMatch: _semanticMatch,
+          semanticFeedback: _semanticFeedback,
+          betterWay: _betterWay,
         ),
       ],
     ],
@@ -723,17 +755,23 @@ class _HeardPanel extends StatelessWidget {
   final String heard, target;
   final double score;
   final PhoneticDiagnosticResult? diagnostic;
+  final bool semanticMatch;
+  final String semanticFeedback;
+  final String betterWay;
 
   const _HeardPanel({
     required this.heard,
     required this.score,
     required this.target,
     this.diagnostic,
+    this.semanticMatch = false,
+    this.semanticFeedback = '',
+    this.betterWay = '',
   });
 
   @override
   Widget build(BuildContext context) {
-    final ok = score >= .55;
+    final ok = score >= .55 || semanticMatch;
     final diag = diagnostic;
     return Container(
       padding: const EdgeInsets.all(16),
@@ -748,7 +786,7 @@ class _HeardPanel extends StatelessWidget {
               Text('HEARD ON THIS PHONE', style: Boli.label(size: 11)),
               const Spacer(),
               Text(
-                '${(score * 100).round()}% match',
+                semanticMatch ? 'Context Match (Gemma AI)' : '${(score * 100).round()}% match',
                 style: Boli.body(
                   13,
                   weight: FontWeight.w800,
@@ -778,8 +816,48 @@ class _HeardPanel extends StatelessWidget {
             ],
           ),
 
+          // Gemma AI Semantic Understanding Card
+          if (semanticMatch) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Boli.peacock.withValues(alpha: .09),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Boli.peacock.withValues(alpha: .40)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.auto_awesome_rounded, size: 16, color: Boli.peacock),
+                      const SizedBox(width: 6),
+                      Text(
+                        'GEMMA AI · अर्थ समजला (MEANING UNDERSTOOD)',
+                        style: Boli.label(size: 10.5, color: Boli.peacock),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    semanticFeedback.isNotEmpty ? semanticFeedback : 'अर्थ अगदी योग्य आहे! (Meaning is correct!)',
+                    style: Boli.body(13.5, weight: FontWeight.w700, color: Boli.ink),
+                  ),
+                  if (betterWay.isNotEmpty && betterWay != target) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'असाही बोलू शकता: "$betterWay"',
+                      style: Boli.label(size: 11, color: Boli.peacock),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+
           // L1-Interference Articulatory Diagnostic Card
-          if (diag != null && diag.hasL1Interference) ...[
+          if (diag != null && diag.hasL1Interference && !semanticMatch) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -826,14 +904,14 @@ class _HeardPanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Icon(
-                  Icons.volume_up_rounded,
+                  Icons.lightbulb_outline_rounded,
                   size: 17,
                   color: Boli.terracotta,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Expected  $target',
+                    'संदर्भ वाक्य (Reference): $target',
                     style: Boli.body(
                       15,
                       weight: FontWeight.w600,

@@ -723,9 +723,12 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
                   children: [
                     Row(
                       children: [
-                        Text(
-                          'Ambient Vocabulary Miner',
-                          style: Boli.head(17, weight: 700),
+                        Flexible(
+                          child: Text(
+                            'Ambient Vocabulary Miner',
+                            style: Boli.head(17, weight: 700),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         const SizedBox(width: 6),
                         Container(

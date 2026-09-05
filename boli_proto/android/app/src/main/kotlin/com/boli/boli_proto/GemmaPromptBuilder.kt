@@ -167,8 +167,40 @@ object GemmaPromptBuilder {
     }
 
     // -------------------------------------------------------------------------
-    // Roleplay — next conversational turn
+    // Roleplay — dynamic persona opener (Gemma-generated, not hardcoded)
     // -------------------------------------------------------------------------
+
+    /**
+     * Generates Gemma's opening conversational line for a roleplay persona.
+     *
+     * Expected output format (parse in BoliAiLayer):
+     *   L2: Opener sentence in L2 script (1 sentence)
+     *   L1: Meaning in L1 script
+     */
+    fun buildRoleplayOpenerPrompt(
+        persona: String,
+        scenario: String,
+        ctx: GemmaContext,
+    ): String {
+        val (l2Name, l2Script) = getLanguageScriptName(ctx.l2)
+        val (l1Name, l1Script) = getLanguageScriptName(ctx.l1)
+        val userPrompt = buildString {
+            appendLine(systemHeader(ctx))
+            appendLine()
+            appendLine("ROLE: You play a $persona speaking in $l2Name ($l2Script).")
+            appendLine("SCENARIO: $scenario")
+            appendLine("TASK: Generate your opening line to start the conversation naturally.")
+            appendLine("This is the FIRST thing you say to the learner worker. Make it realistic for an Indian workplace.")
+            appendLine("Keep it short (1 sentence, under 15 words) and use authentic $l2Name.")
+            appendLine()
+            appendLine("Format strictly as follows (no angle brackets, no markdown):")
+            appendLine("L2: Your opening line in $l2Script")
+            appendLine("L1: Meaning of your line in $l1Script")
+            appendLine()
+            appendLine("CRITICAL: Do NOT use brackets, placeholder text, or ellipsis. Output real, authentic workplace speech.")
+        }
+        return wrapTurn(userPrompt)
+    }
 
     // -------------------------------------------------------------------------
     // Roleplay — semantic understanding, natural response, and coaching feedback
@@ -194,15 +226,18 @@ object GemmaPromptBuilder {
             appendLine(systemHeader(ctx))
             appendLine()
             appendLine("ROLE: You play a $persona speaking in $l2Name ($l2Script).")
-            appendLine("TASK: Continue the conversation with the learner.")
+            appendLine("TASK: Actively continue this real conversation with the learner.")
+            appendLine("IMPORTANT: Directly answer or address what the Learner said in their latest turn.")
             appendLine("Understand the learner's intent semantically even if their $l2Name grammar is rough.")
+            appendLine("If they asked for water, food, help, materials, or wages, respond specifically to their request.")
+            appendLine("If they greeted you, greet back warmly and ask about their progress.")
             appendLine("Keep sentences practical, polite, and spoken as in a real Indian workplace.")
             if (ctx.frequentlyMissedWords.isNotEmpty()) {
                 appendLine("Reinforce: ${ctx.frequentlyMissedWords.take(2).joinToString(", ")}.")
             }
             appendLine()
             appendLine("Conversation history:")
-            for (turn in history.takeLast(4)) {
+            for (turn in history.takeLast(6)) {
                 val speaker = if (turn.speaker == "user") "Learner" else "You ($persona)"
                 appendLine("$speaker: ${turn.text}")
             }
@@ -215,6 +250,37 @@ object GemmaPromptBuilder {
             appendLine("HINT: One pronunciation or articulation tip, or write none")
             appendLine()
             appendLine("CRITICAL: Do NOT loop or repeat phrases. Output crisp native text.")
+        }
+        return wrapTurn(userPrompt)
+    }
+
+    /**
+     * Builds prompt to evaluate whether user's spoken answer semantically matches
+     * the intended context or prompt (semantic grading rather than rigid string match).
+     */
+    fun buildEvaluateSpokenIntentPrompt(
+        targetPhrase: String,
+        prompt: String,
+        spokenText: String,
+        ctx: GemmaContext,
+    ): String {
+        val (l2Name, l2Script) = getLanguageScriptName(ctx.l2)
+        val (l1Name, l1Script) = getLanguageScriptName(ctx.l1)
+        val userPrompt = buildString {
+            appendLine(systemHeader(ctx))
+            appendLine()
+            appendLine("TASK: Evaluate if the learner's spoken response in $l2Name is semantically valid or contextually appropriate.")
+            appendLine("Context / Prompt: \"$prompt\"")
+            appendLine("Target / Expected phrase: \"$targetPhrase\"")
+            appendLine("What learner actually said: \"$spokenText\"")
+            appendLine()
+            appendLine("Accept valid answers, synonyms, natural conversational variations, or roughly spoken phrases that convey the right intent.")
+            appendLine("Do NOT require word-for-word memorization. If it communicates the idea in an Indian workplace, count it as a match.")
+            appendLine()
+            appendLine("Format strictly as follows (no angle brackets, no markdown):")
+            appendLine("MATCH: YES or NO")
+            appendLine("FEEDBACK: 1 short sentence in $l1Script explaining what was understood")
+            appendLine("BETTER: Natural, polite phrasing in $l2Script")
         }
         return wrapTurn(userPrompt)
     }

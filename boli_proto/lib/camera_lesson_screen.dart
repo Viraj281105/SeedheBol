@@ -96,6 +96,28 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
     }
   }
 
+  static const double _boxWidthFraction = 0.86;
+  static const double _boxAspectRatio = 0.52; // height = width * 0.52
+
+  Map<String, double> _calculateCropRect() {
+    final cam = _camera;
+    if (cam == null || !cam.value.isInitialized) {
+      return {'left': 0.0, 'top': 0.0, 'width': 1.0, 'height': 1.0};
+    }
+    // Sensor aspect ratio in portrait: width / height (e.g. 9/16 = 0.5625)
+    final camPortraitRatio = 1 / cam.value.aspectRatio;
+    final cropWidth = _boxWidthFraction;
+    final cropHeight = (_boxWidthFraction * _boxAspectRatio * camPortraitRatio).clamp(0.05, 0.95);
+    final cropLeft = (1.0 - cropWidth) / 2.0;
+    final cropTop = (1.0 - cropHeight) / 2.0;
+    return {
+      'left': cropLeft,
+      'top': cropTop,
+      'width': cropWidth,
+      'height': cropHeight,
+    };
+  }
+
   Future<void> _captureAndProcess() async {
     final cam = _camera;
     if (cam == null || !cam.value.isInitialized || _scanning) return;
@@ -113,10 +135,14 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
       final file = await cam.takePicture();
       final bytes = await file.readAsBytes();
 
-      // 2. Run on-device ML Kit OCR
+      // 2. Run on-device ML Kit OCR strictly cropped to the viewfinder bounding box
+      final cropRect = _calculateCropRect();
       final lines = await _engineChannel.invokeListMethod<String>(
         'extractTextFromImage',
-        {'image_bytes': Uint8List.fromList(bytes)},
+        {
+          'image_bytes': Uint8List.fromList(bytes),
+          'crop_rect': cropRect,
+        },
       ) ?? [];
       final rawText = lines.join('\n').trim();
 
@@ -232,64 +258,99 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
   }
 
   Widget _buildBody() {
-    return Stack(
-      children: [
-        // Camera preview
-        if (_cameraReady && _camera != null)
-          Positioned.fill(child: CameraPreview(_camera!)),
+    final cam = _camera;
+    final hasCamera = _cameraReady && cam != null && cam.value.isInitialized;
 
-        // Framing guide overlay when waiting for capture
-        if (_lesson == null && !_scanning && !_generatingLesson)
-          Positioned.fill(
-            child: _ViewfinderOverlay(),
-          ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calculate preview layout matching AspectRatio
+        double previewW = constraints.maxWidth;
+        double previewH = constraints.maxHeight;
+        double previewX = 0;
+        double previewY = 0;
 
-        // Scanning / Generating overlay
-        if (_scanning || _generatingLesson)
-          _ScanningOverlay(
-            message: _scanning
-                ? 'पाटी वाचत आहे… (Reading text…)'
-                : 'Gemma अर्थ समजावून सांगत आहे…\n(Understanding sign & creating lesson…)',
-          ),
+        if (hasCamera) {
+          final camPortraitRatio = 1 / cam.value.aspectRatio;
+          final screenRatio = constraints.maxWidth / constraints.maxHeight;
+          if (screenRatio < camPortraitRatio) {
+            previewW = constraints.maxWidth;
+            previewH = previewW / camPortraitRatio;
+            previewX = 0;
+            previewY = (constraints.maxHeight - previewH) / 2;
+          } else {
+            previewH = constraints.maxHeight;
+            previewW = previewH * camPortraitRatio;
+            previewX = (constraints.maxWidth - previewW) / 2;
+            previewY = 0;
+          }
+        }
 
-        // Error message
-        if (_lessonError.isNotEmpty && _lesson == null)
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: _ErrorBadge(message: _lessonError),
-          ),
+        final boxW = previewW * _boxWidthFraction;
+        final boxH = boxW * _boxAspectRatio;
+        final boxLeft = previewX + (previewW - boxW) / 2;
+        final boxTop = previewY + (previewH - boxH) / 2;
+        final cutoutRect = Rect.fromLTWH(boxLeft, boxTop, boxW, boxH);
 
-        // Capture button — bottom-centre when no lesson showing
-        if (_lesson == null && !_scanning && !_generatingLesson)
-          Positioned(
-            bottom: 28,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: _CaptureButton(
-                onTap: _cameraReady ? _captureAndProcess : null,
+        return Stack(
+          children: [
+            // Camera preview
+            if (hasCamera)
+              Positioned.fill(child: CameraPreview(cam)),
+
+            // Viewfinder cutout overlay with dimmed surroundings
+            if (_lesson == null && !_scanning && !_generatingLesson)
+              Positioned.fill(
+                child: _ViewfinderOverlay(cutoutRect: cutoutRect),
               ),
-            ),
-          ),
 
-        // Hero Lesson Sheet — when lesson is ready
-        if (_lesson != null)
-          Positioned.fill(
-            child: _HeroLessonSheet(
-              lesson: _lesson!,
-              ocrText: _ocrText,
-              onSpeak: _speak,
-              onRescan: () {
-                setState(() {
-                  _lesson = null;
-                  _ocrText = '';
-                });
-              },
-            ),
-          ),
-      ],
+            // Scanning / Generating overlay
+            if (_scanning || _generatingLesson)
+              _ScanningOverlay(
+                message: _scanning
+                    ? 'पाटी वाचत आहे… (Reading text…)'
+                    : 'Gemma अर्थ समजावून सांगत आहे…\n(Understanding sign & creating lesson…)',
+              ),
+
+            // Error message
+            if (_lessonError.isNotEmpty && _lesson == null)
+              Positioned(
+                top: 16,
+                left: 16,
+                right: 16,
+                child: _ErrorBadge(message: _lessonError),
+              ),
+
+            // Capture button — bottom-centre when no lesson showing
+            if (_lesson == null && !_scanning && !_generatingLesson)
+              Positioned(
+                bottom: 28,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: _CaptureButton(
+                    onTap: _cameraReady ? _captureAndProcess : null,
+                  ),
+                ),
+              ),
+
+            // Hero Lesson Sheet — when lesson is ready
+            if (_lesson != null)
+              Positioned.fill(
+                child: _HeroLessonSheet(
+                  lesson: _lesson!,
+                  ocrText: _ocrText,
+                  onSpeak: _speak,
+                  onRescan: () {
+                    setState(() {
+                      _lesson = null;
+                      _ocrText = '';
+                    });
+                  },
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -370,84 +431,140 @@ class _LessonData {
 // ---------------------------------------------------------------------------
 
 class _ViewfinderOverlay extends StatelessWidget {
+  final Rect cutoutRect;
+  const _ViewfinderOverlay({required this.cutoutRect});
+
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final boxW = constraints.maxWidth * 0.84;
-        final boxH = boxW * 0.58;
+    return Stack(
+      children: [
+        // Darkened mask outside the cutout window
+        Positioned.fill(
+          child: CustomPaint(
+            painter: _ViewfinderCutoutPainter(
+              cutoutRect: cutoutRect,
+              borderRadius: 16,
+              scrimColor: Colors.black.withValues(alpha: .55),
+            ),
+          ),
+        ),
 
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            // Framing reticle box
-            Container(
-              width: boxW,
-              height: boxH,
+        // Framing reticle box with bright gold border
+        Positioned(
+          left: cutoutRect.left,
+          top: cutoutRect.top,
+          width: cutoutRect.width,
+          height: cutoutRect.height,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Boli.marigold.withValues(alpha: .85),
+                width: 2.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .35),
+                  blurRadius: 16,
+                ),
+              ],
+            ),
+            child: Stack(
+              children: const [
+                Positioned(
+                  top: -1,
+                  left: -1,
+                  child: _CornerBracket(isTop: true, isLeft: true),
+                ),
+                Positioned(
+                  top: -1,
+                  right: -1,
+                  child: _CornerBracket(isTop: true, isLeft: false),
+                ),
+                Positioned(
+                  bottom: -1,
+                  left: -1,
+                  child: _CornerBracket(isTop: false, isLeft: true),
+                ),
+                Positioned(
+                  bottom: -1,
+                  right: -1,
+                  child: _CornerBracket(isTop: false, isLeft: false),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Instructional banner above frame
+        Positioned(
+          top: math.max(16.0, cutoutRect.top - 54.0),
+          left: 0,
+          right: 0,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Boli.marigold.withValues(alpha: .75), width: 2.5),
+                color: Boli.ink.withValues(alpha: .90),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Boli.sand.withValues(alpha: .4)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: .35),
-                    blurRadius: 16,
+                    color: Colors.black.withValues(alpha: .3),
+                    blurRadius: 8,
                   ),
                 ],
               ),
-              child: Stack(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Corner brackets
-                  Positioned(
-                    top: -1,
-                    left: -1,
-                    child: _CornerBracket(isTop: true, isLeft: true),
-                  ),
-                  Positioned(
-                    top: -1,
-                    right: -1,
-                    child: _CornerBracket(isTop: true, isLeft: false),
-                  ),
-                  Positioned(
-                    bottom: -1,
-                    left: -1,
-                    child: _CornerBracket(isTop: false, isLeft: true),
-                  ),
-                  Positioned(
-                    bottom: -1,
-                    right: -1,
-                    child: _CornerBracket(isTop: false, isLeft: false),
+                  const Icon(Icons.crop_free_rounded, color: Boli.marigold, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    'केवळ चौकटीतील मजकूर वाचला जाईल · Inside box only',
+                    style: Boli.body(12.5, color: Boli.cream, weight: FontWeight.w600),
                   ),
                 ],
               ),
             ),
-
-            // Instructional banner above frame
-            Positioned(
-              top: constraints.maxHeight * 0.16,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Boli.ink.withValues(alpha: .85),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Boli.sand.withValues(alpha: .4)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.crop_free_rounded, color: Boli.marigold, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      'पाटी किंवा फलक चौकटीत धरा · Frame the sign',
-                      style: Boli.body(13, color: Boli.cream, weight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+          ),
+        ),
+      ],
     );
+  }
+}
+
+class _ViewfinderCutoutPainter extends CustomPainter {
+  final Rect cutoutRect;
+  final double borderRadius;
+  final Color scrimColor;
+
+  _ViewfinderCutoutPainter({
+    required this.cutoutRect,
+    required this.borderRadius,
+    required this.scrimColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final backgroundPath = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    final cutoutPath = Path()
+      ..addRRect(RRect.fromRectAndRadius(cutoutRect, Radius.circular(borderRadius)));
+
+    final overlayPath = Path.combine(PathOperation.difference, backgroundPath, cutoutPath);
+    final paint = Paint()
+      ..color = scrimColor
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(overlayPath, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ViewfinderCutoutPainter oldDelegate) {
+    return oldDelegate.cutoutRect != cutoutRect ||
+        oldDelegate.borderRadius != borderRadius ||
+        oldDelegate.scrimColor != scrimColor;
   }
 }
 

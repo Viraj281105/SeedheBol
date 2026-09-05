@@ -51,11 +51,19 @@ abstract class IBoliBridge {
   Future<bool> isAmbientMiningActive();
 
   // Camera OCR Lesson Generation
-  Future<List<String>> extractTextFromImage(Uint8List imageBytes);
+  Future<List<String>> extractTextFromImage(
+    Uint8List imageBytes, {
+    Map<String, double>? cropRect,
+  });
 
   // Gemma-powered AI methods (with deterministic fallback)
   Future<Map<String, dynamic>> generateLessonFromOcr(String ocrText, {String? topicHint});
   Future<Map<String, dynamic>> translateText(String text);
+  Future<Map<String, dynamic>> evaluateSpokenIntent({
+    required String targetPhrase,
+    required String prompt,
+    required String spokenText,
+  });
   Future<bool> isGemmaAvailable();
 
   // Telemetry & Hardware Info
@@ -256,10 +264,16 @@ class BoliBridge implements IBoliBridge {
   }
 
   @override
-  Future<List<String>> extractTextFromImage(Uint8List imageBytes) async {
+  Future<List<String>> extractTextFromImage(
+    Uint8List imageBytes, {
+    Map<String, double>? cropRect,
+  }) async {
     final result = await _methodChannel.invokeListMethod<String>(
       'extractTextFromImage',
-      {'image_bytes': imageBytes},
+      {
+        'image_bytes': imageBytes,
+        'crop_rect': ?cropRect,
+      },
     );
     return result ?? const [];
   }
@@ -388,6 +402,27 @@ class BoliBridge implements IBoliBridge {
       {'phrase': phrase},
     );
     return result ?? const {};
+  }
+
+  @override
+  Future<Map<String, dynamic>> evaluateSpokenIntent({
+    required String targetPhrase,
+    required String prompt,
+    required String spokenText,
+  }) async {
+    try {
+      final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+        'evaluateSpokenIntent',
+        {
+          'target_phrase': targetPhrase,
+          'prompt': prompt,
+          'spoken_text': spokenText,
+        },
+      );
+      return result ?? const {};
+    } catch (_) {
+      return const {};
+    }
   }
 
   @override

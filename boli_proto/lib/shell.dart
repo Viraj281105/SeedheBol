@@ -133,6 +133,7 @@ class TodayScreen extends StatefulWidget {
 class _TodayScreenState extends State<TodayScreen> {
   int _filter = 0;
   bool _voiceFirstMode = false;
+  bool _gemmaAvailable = false;
   final _readiness = <String, double>{};
 
   static const _day = 6, _ofDays = 21;
@@ -155,11 +156,149 @@ class _TodayScreenState extends State<TodayScreen> {
     return list.map(_read).fold(0.0, (a, b) => a + b) / list.length;
   }
 
+  @override
+  void initState() {
+    super.initState();
+    _checkGemmaAvailability();
+  }
+
+  Future<void> _checkGemmaAvailability() async {
+    try {
+      final available = await const MethodChannel('boli/engine_methods')
+          .invokeMethod<bool>('isGemmaAvailable') ??
+          false;
+      if (mounted) setState(() => _gemmaAvailable = available);
+    } catch (_) {}
+  }
+
+  /// Opens a situation — Gemma first, preset exercises as fallback.
+  ///
+  /// When Gemma is available, personalised dynamic drills are generated
+  /// on-device before the PracticeScreen launches. If Gemma is unavailable
+  /// or generation fails within 20 s, the hardcoded preset exercises are used.
   Future<void> _open(Situation s) async {
+    // Situations without any preset exercises always go through Gemma.
     if (s.exercises.isEmpty) {
       _comingSoon(s);
       return;
     }
+
+    // If Gemma is available, try to generate personalised drills.
+    if (_gemmaAvailable) {
+      await _openWithGemmaDrills(s);
+      return;
+    }
+
+    // Gemma not loaded — launch immediately with preset exercises.
+    await _pushPracticeScreen(s);
+  }
+
+  /// Shows a brief loading overlay, generates Gemma drills, and launches
+  /// PracticeScreen with them. Falls back to preset exercises on any failure.
+  Future<void> _openWithGemmaDrills(Situation s) async {
+    if (!mounted) return;
+
+    // Show a lightweight "Gemma is personalising…" overlay — dismiss it ourselves.
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Center(
+        child: Container(
+          margin: const EdgeInsets.all(32),
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 26),
+          decoration: BoxDecoration(
+            color: Boli.paper,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: Boli.lift(y: 6, blur: 20),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(
+                  color: Boli.terracotta,
+                  strokeWidth: 3,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Gemma सराव तयार करत आहे…',
+                style: Boli.head(16, weight: 700),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Personalizing for ${s.title}…',
+                style: Boli.body(13, color: Boli.inkSoft),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    Situation situationToOpen = s; // default: preset exercises
+
+    try {
+      final res = await const MethodChannel('boli/engine_methods')
+          .invokeMapMethod<String, dynamic>(
+            'generatePracticeDrills',
+            {'situation': s.title, 'domain': widget.job.title},
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final rawList = res?['exercises'] as List<dynamic>? ?? [];
+      final generated = <Exercise>[];
+
+      for (final item in rawList) {
+        if (item is Map) {
+          final kindStr = item['kind'] as String? ?? 'speak';
+          final kind = kindStr == 'choice' ? Kind.choice : Kind.speak;
+          final prompt = item['prompt'] as String? ?? '';
+          final target = item['target_text'] as String? ?? '';
+          final roman = item['roman'] as String? ?? '';
+          final trans = item['translation'] as String? ?? '';
+          final options =
+              (item['options'] as List<dynamic>?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              [];
+          final answer = item['answer_index'] as int? ?? 0;
+
+          if (target.isNotEmpty) {
+            generated.add(Exercise(
+              kind: kind,
+              prompt: prompt,
+              marathi: target,
+              roman: roman,
+              english: trans,
+              options: options,
+              answer: answer,
+            ));
+          }
+        }
+      }
+
+      if (generated.isNotEmpty) {
+        // Gemma delivered — replace preset exercises with dynamic ones.
+        situationToOpen = s.copyWith(exercises: generated);
+      }
+      // If Gemma returned empty (e.g. model hiccup), we fall back to preset s.
+    } catch (_) {
+      // Timeout or platform error — silently fall back to preset exercises.
+    }
+
+    // Dismiss the loading dialog before pushing the PracticeScreen.
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+    await _pushPracticeScreen(situationToOpen);
+  }
+
+  Future<void> _pushPracticeScreen(Situation s) async {
+    if (!mounted) return;
     final done = await Navigator.of(context).push<double>(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 380),
@@ -317,7 +456,7 @@ class _TodayScreenState extends State<TodayScreen> {
 
       if (generated.isNotEmpty && mounted) {
         final dynamicSit = s.copyWith(exercises: generated);
-        _open(dynamicSit);
+        _pushPracticeScreen(dynamicSit);
       }
     } catch (_) {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();

@@ -20,9 +20,9 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import java.io.File
 import kotlinx.coroutines.*
 import org.json.JSONObject
-import java.io.File
 
 /**
  * SeedheBolBridgePlugin
@@ -62,8 +62,6 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     private val pluginScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val mainHandler = Handler(Looper.getMainLooper())
     private var warmUpJob: Job? = null
-    private var isAmbientMiningRunning: Boolean = false
-    private var ambientMiningJob: Job? = null
 
     // ---- AI layer (initialised in onAttachedToEngine) -----------------------
     private lateinit var gemmaEngine: GemmaEngine
@@ -111,7 +109,10 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     transcriptSink = events
                 }
-                override fun onCancel(arguments: Any?) { transcriptSink = null }
+
+                override fun onCancel(arguments: Any?) {
+                    transcriptSink = null
+                }
             }
         )
         EventChannel(binding.binaryMessenger, AMBIENT_EVENT_CHANNEL).setStreamHandler(
@@ -119,7 +120,10 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     ambientSink = events
                 }
-                override fun onCancel(arguments: Any?) { ambientSink = null }
+
+                override fun onCancel(arguments: Any?) {
+                    ambientSink = null
+                }
             }
         )
         EventChannel(binding.binaryMessenger, THERMAL_EVENT_CHANNEL).setStreamHandler(
@@ -127,7 +131,10 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     thermalSink = events
                 }
-                override fun onCancel(arguments: Any?) { thermalSink = null }
+
+                override fun onCancel(arguments: Any?) {
+                    thermalSink = null
+                }
             }
         )
         EventChannel(binding.binaryMessenger, VAD_EVENT_CHANNEL).setStreamHandler(
@@ -135,16 +142,16 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     vadSink = events
                 }
-                override fun onCancel(arguments: Any?) { vadSink = null }
+
+                override fun onCancel(arguments: Any?) {
+                    vadSink = null
+                }
             }
         )
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel.setMethodCallHandler(null)
-        isAmbientMiningRunning = false
-        ambientMiningJob?.cancel()
-        ambientMiningJob = null
         pluginScope.cancel()
         conversationHistory.clear()
     }
@@ -155,40 +162,42 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
 
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
-            "initializeEngine"            -> handleInitializeEngine(call, result)
-            "startListening"              -> handleStartListening(result)
-            "stopListening"               -> handleStopListening(result)
-            "cancelListening"             -> handleCancelListening(result)
-            "scorePronunciation"          -> handleScorePronunciation(call, result)
-            "submitUserUtterance"         -> handleSubmitUserUtterance(call, result)
-            "speakPrompt"                 -> handleSpeakPrompt(call, result)
-            "stopSpeaking"                -> handleStopSpeaking(result)
-            "startAmbientMining"          -> handleStartAmbientMining(result)
-            "stopAmbientMining"           -> handleStopAmbientMining(result)
-            "isAmbientMiningActive"       -> result.success(isAmbientMiningRunning)
+            "initializeEngine" -> handleInitializeEngine(call, result)
+            "startListening" -> handleStartListening(result)
+            "stopListening" -> handleStopListening(result)
+            "cancelListening" -> handleCancelListening(result)
+            "scorePronunciation" -> handleScorePronunciation(call, result)
+            "submitUserUtterance" -> handleSubmitUserUtterance(call, result)
+            "speakPrompt" -> handleSpeakPrompt(call, result)
+            "stopSpeaking" -> handleStopSpeaking(result)
+            "startAmbientMining" -> handleStartAmbientMining(result)
+            "stopAmbientMining" -> handleStopAmbientMining(result)
+            "isAmbientMiningActive" -> result.success(false)
             // OCR — now wired to MlKitOcr
-            "extractTextFromImage"        -> handleExtractTextFromImage(call, result)
+            "extractTextFromImage" -> handleExtractTextFromImage(call, result)
             // NEW: Gemma-powered flows
-            "generateLessonFromOcr"       -> handleGenerateLessonFromOcr(call, result)
-            "translateText"               -> handleTranslateText(call, result)
-            "getExplanation"              -> handleGetExplanation(call, result)
-            "generatePracticeDrills"      -> handleGeneratePracticeDrills(call, result)
-            "coachPeerTurn"               -> handleCoachPeerTurn(call, result)
-            "isGemmaAvailable"            -> handleIsGemmaAvailable(result)
-            "getHardwareTelemetry"        -> handleGetHardwareTelemetry(result)
-            "exportOfficeKitData"         -> handleExportOfficeKitData(result)
+            "generateLessonFromOcr" -> handleGenerateLessonFromOcr(call, result)
+            "translateText" -> handleTranslateText(call, result)
+            "getExplanation" -> handleGetExplanation(call, result)
+            "generatePracticeDrills" -> handleGeneratePracticeDrills(call, result)
+            "coachPeerTurn" -> handleCoachPeerTurn(call, result)
+            "generateRoleplayOpener" -> handleGenerateRoleplayOpener(call, result)
+            "evaluateSpokenIntent" -> handleEvaluateSpokenIntent(call, result)
+            "isGemmaAvailable" -> handleIsGemmaAvailable(result)
+            "getHardwareTelemetry" -> handleGetHardwareTelemetry(result)
+            "exportOfficeKitData" -> handleExportOfficeKitData(result)
             // Learner Memory & Personalization API
-            "recordWordAttempt"           -> handleRecordWordAttempt(call, result)
+            "recordWordAttempt" -> handleRecordWordAttempt(call, result)
             "recordPronunciationWeakness" -> handleRecordPronunciationWeakness(call, result)
-            "recordCompletedScenario"     -> handleRecordCompletedScenario(call, result)
-            "addLearnedVocab"             -> handleAddLearnedVocab(call, result)
-            "getLearnerProfile"           -> handleGetLearnerProfile(result)
-            "updateLearnerProfile"        -> handleUpdateLearnerProfile(call, result)
+            "recordCompletedScenario" -> handleRecordCompletedScenario(call, result)
+            "addLearnedVocab" -> handleAddLearnedVocab(call, result)
+            "getLearnerProfile" -> handleGetLearnerProfile(result)
+            "updateLearnerProfile" -> handleUpdateLearnerProfile(call, result)
             // Daily Mission API
-            "generateDailyMission"        -> handleGenerateDailyMission(call, result)
+            "generateDailyMission" -> handleGenerateDailyMission(call, result)
             // Listen Around Me API
-            "analyzeHeardPhrase"          -> handleAnalyzeHeardPhrase(call, result)
-            else                          -> result.notImplemented()
+            "analyzeHeardPhrase" -> handleAnalyzeHeardPhrase(call, result)
+            else -> result.notImplemented()
         }
     }
 
@@ -241,6 +250,26 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         }
     }
 
+    private fun handleGenerateRoleplayOpener(call: MethodCall, result: Result) {
+        val persona = call.argument<String>("persona") ?: "supervisor"
+        val scenario = call.argument<String>("scenario") ?: ""
+        val fallbackL2 = call.argument<String>("fallback_l2") ?: ""
+        val fallbackL1 = call.argument<String>("fallback_l1") ?: ""
+        pluginScope.launch {
+            val ctx = memoryStore.buildPersonalizedGemmaContext(scenario = scenario)
+            val (l2, l1) = aiLayer.generateRoleplayOpener(
+                persona = persona,
+                scenario = scenario,
+                ctx = ctx,
+                fallbackL2 = fallbackL2,
+                fallbackL1 = fallbackL1,
+            )
+            withContext(Dispatchers.Main) {
+                result.success(mapOf("opener_l2" to l2, "opener_l1" to l1))
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Roleplay — now Gemma-powered with deterministic fallback & learner memory
     // -------------------------------------------------------------------------
@@ -266,10 +295,12 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             // Record bot turn if Gemma responded with one
             val botText = response["prompt_l2"] as? String ?: ""
             if (botText.isNotBlank()) {
-                conversationHistory.add(DialogueTurn(
-                    "bot", botText,
-                    l1Text = response["prompt_l1"] as? String ?: "",
-                ))
+                conversationHistory.add(
+                    DialogueTurn(
+                        "bot", botText,
+                        l1Text = response["prompt_l1"] as? String ?: "",
+                    )
+                )
             }
             // Trim history to last 20 turns to avoid unbounded memory use
             if (conversationHistory.size > 20) {
@@ -304,199 +335,11 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     }
 
     private fun handleStartAmbientMining(result: Result) {
-        if (isAmbientMiningRunning) {
-            result.success(null)
-            return
-        }
-        isAmbientMiningRunning = true
-        Log.i("BoliBridgePlugin", "Native Background Ambient Mining Service started (DPDP Compliant - Ephemeral RAM Buffer)")
-
-        ambientMiningJob = pluginScope.launch {
-            var cycle = 0
-            val vocabList = getAmbientCorridorPool(sessionCtx.l2, sessionCtx.occupation)
-
-            // Emit initial discovered lemma quickly (1.2s) so UI gives instant positive confirmation
-            delay(1200)
-            while (isActive && isAmbientMiningRunning) {
-                // Thermal headroom throttling: pause ambient mining if thermal status is elevated (> 0.85)
-                val isThrottled = runCatching {
-                    val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && pm != null) {
-                        pm.getThermalHeadroom(30) > 0.85f
-                    } else false
-                }.getOrDefault(false)
-
-                if (!isThrottled && vocabList.isNotEmpty()) {
-                    val item = vocabList[cycle % vocabList.size]
-                    val eventMap = mapOf(
-                        "lemma" to item["lemma"],
-                        "transliteration" to item["transliteration"],
-                        "translation_l1" to item["translation_l1"],
-                        "context_sentence" to item["context_sentence"],
-                        "occurrence_count" to (item["occurrence_count"] ?: 1),
-                        "timestamp" to java.time.Instant.now().toString()
-                    )
-
-                    // Add to learner memory store for spaced repetition review
-                    item["lemma"]?.let { lemmaWord ->
-                        memoryStore.addLearnedVocab(lemmaWord.toString())
-                    }
-
-                    mainHandler.post {
-                        ambientSink?.success(eventMap)
-                    }
-                    cycle++
-                }
-                // Periodic passive extraction loop interval (8 seconds)
-                delay(8000)
-            }
-        }
         result.success(null)
     }
 
     private fun handleStopAmbientMining(result: Result) {
-        isAmbientMiningRunning = false
-        ambientMiningJob?.cancel()
-        ambientMiningJob = null
-        Log.i("BoliBridgePlugin", "Native Background Ambient Mining Service stopped")
         result.success(null)
-    }
-
-    private fun getAmbientCorridorPool(l2: String, occupation: String): List<Map<String, Any>> {
-        val isTamil = l2.equals("ta", ignoreCase = true) || l2.equals("tamil", ignoreCase = true)
-        val isRestaurant = occupation.contains("restaurant", ignoreCase = true) ||
-                occupation.contains("hotel", ignoreCase = true) ||
-                occupation.contains("हॉटेल", ignoreCase = true)
-
-        return when {
-            isTamil && isRestaurant -> listOf(
-                mapOf(
-                    "lemma" to "தோசை",
-                    "transliteration" to "dosai",
-                    "translation_l1" to "डोसा (नाश्ता)",
-                    "context_sentence" to "ரெண்டு நெய் தோசை கொண்டு வாங்க",
-                    "occurrence_count" to 1
-                ),
-                mapOf(
-                    "lemma" to "காபி",
-                    "transliteration" to "kaapi",
-                    "translation_l1" to "कॉफी",
-                    "context_sentence" to "ரெண்டு ஸ்ட்ராங் பில்டர் காபி கொடுங்க",
-                    "occurrence_count" to 2
-                ),
-                mapOf(
-                    "lemma" to "சில்லறை",
-                    "transliteration" to "sillarai",
-                    "translation_l1" to "छुट्टे पैसे",
-                    "context_sentence" to "ஐநூறு ரூபாய்க்கு சில்லறை இருக்கா?",
-                    "occurrence_count" to 1
-                ),
-                mapOf(
-                    "lemma" to "சூடு",
-                    "transliteration" to "soodu",
-                    "translation_l1" to "गरम",
-                    "context_sentence" to "எண்ணெய் ரொம்ப சூடா இருக்கு",
-                    "occurrence_count" to 3
-                ),
-                mapOf(
-                    "lemma" to "சாப்பாடு",
-                    "transliteration" to "saappaadu",
-                    "translation_l1" to "खाना/भोजन",
-                    "context_sentence" to "மதிய சாப்பாடு ரெடியா இருக்கு",
-                    "occurrence_count" to 2
-                )
-            )
-            isTamil -> listOf(
-                mapOf(
-                    "lemma" to "மேஸ்திரி",
-                    "transliteration" to "mesthiri",
-                    "translation_l1" to "सुपरवाइजर/मुकादम",
-                    "context_sentence" to "மேஸ்திரி புது கம்பி ஆர்டர் பண்ணிட்டாரு",
-                    "occurrence_count" to 1
-                ),
-                mapOf(
-                    "lemma" to "கூலி",
-                    "transliteration" to "kooli",
-                    "translation_l1" to "दैनिक मजदूरी",
-                    "context_sentence" to "வார கூலி கணக்கு பாருங்க",
-                    "occurrence_count" to 2
-                ),
-                mapOf(
-                    "lemma" to "ஜாக்கிரதை",
-                    "transliteration" to "jaakkiradhai",
-                    "translation_l1" to "सावधानी",
-                    "context_sentence" to "மேலே வேலை நடக்குது, ஜாக்கிரதை",
-                    "occurrence_count" to 1
-                ),
-                mapOf(
-                    "lemma" to "சிமெண்ட்",
-                    "transliteration" to "cement",
-                    "translation_l1" to "सीमेंट",
-                    "context_sentence" to "சிமெண்ட் கலவை சீக்கிரம் தயார் பண்ணுங்க",
-                    "occurrence_count" to 2
-                )
-            )
-            isRestaurant -> listOf(
-                mapOf(
-                    "lemma" to "चहा",
-                    "transliteration" to "chaha",
-                    "translation_l1" to "चाय",
-                    "context_sentence" to "दोन स्पेशल चहा पाठवा",
-                    "occurrence_count" to 2
-                ),
-                mapOf(
-                    "lemma" to "सुट्टे",
-                    "transliteration" to "sutte",
-                    "translation_l1" to "छुट्टे पैसे",
-                    "context_sentence" to "पाचशे रुपयांचे सुट्टे आहेत का?",
-                    "occurrence_count" to 1
-                ),
-                mapOf(
-                    "lemma" to "सांभाळा",
-                    "transliteration" to "sambhala",
-                    "translation_l1" to "सावधानी से / ध्यान रखें",
-                    "context_sentence" to "तेल खूप गरम आहे सांभाळा",
-                    "occurrence_count" to 3
-                ),
-                mapOf(
-                    "lemma" to "जेवण",
-                    "transliteration" to "jevan",
-                    "translation_l1" to "भोजन/खाना",
-                    "context_sentence" to "दुपारचं जेवण तयार आहे का?",
-                    "occurrence_count" to 1
-                )
-            )
-            else -> listOf(
-                mapOf(
-                    "lemma" to "पगार",
-                    "transliteration" to "pagar",
-                    "translation_l1" to "मजदूरी/वेतन",
-                    "context_sentence" to "हफ्त्याचा पगार कधी मिळेल?",
-                    "occurrence_count" to 2
-                ),
-                mapOf(
-                    "lemma" to "मदत",
-                    "transliteration" to "madat",
-                    "translation_l1" to "मदद/सहायता",
-                    "context_sentence" to "मला थोडी मदत हवी आहे",
-                    "occurrence_count" to 1
-                ),
-                mapOf(
-                    "lemma" to "सुट्टी",
-                    "transliteration" to "sutti",
-                    "translation_l1" to "अवकाश/छुट्टी",
-                    "context_sentence" to "उद्या कामावर सुट्टी आहे का?",
-                    "occurrence_count" to 1
-                ),
-                mapOf(
-                    "lemma" to "साहित्य",
-                    "transliteration" to "sahitya",
-                    "translation_l1" to "सामान/औजार",
-                    "context_sentence" to "कामाचे सर्व साहित्य इकडे ठेवा",
-                    "occurrence_count" to 3
-                )
-            )
-        }
     }
 
     // -------------------------------------------------------------------------
@@ -509,9 +352,18 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             result.success(emptyList<String>())
             return
         }
+        val cropRectMap = call.argument<Map<String, Any>>("crop_rect")
+        val cropRect = cropRectMap?.let {
+            val l = (it["left"] as? Number)?.toFloat() ?: 0f
+            val t = (it["top"] as? Number)?.toFloat() ?: 0f
+            val w = (it["width"] as? Number)?.toFloat() ?: 1f
+            val h = (it["height"] as? Number)?.toFloat() ?: 1f
+            MlKitOcr.CropRect(l, t, w, h)
+        }
+
         pluginScope.launch {
             runCatching {
-                val ocrResult = ocr.recognizeBytes(imageBytes)
+                val ocrResult = ocr.recognizeBytes(imageBytes, cropRect = cropRect)
                 val cleaned = aiLayer.cleanOcrText(ocrResult.text)
                 val lines = (if (cleaned.isNotBlank()) cleaned else ocrResult.text)
                     .lines()
@@ -586,11 +438,13 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             val ctx = memoryStore.buildPersonalizedGemmaContext(ocrText = text)
             val response = aiLayer.translateOcrText(text, ctx)
             withContext(Dispatchers.Main) {
-                result.success(mapOf(
-                    "translation" to response.value,
-                    "source" to response.source.name.lowercase(),
-                    "latency_ms" to response.latencyMs,
-                ))
+                result.success(
+                    mapOf(
+                        "translation" to response.value,
+                        "source" to response.source.name.lowercase(),
+                        "latency_ms" to response.latencyMs,
+                    )
+                )
             }
         }
     }
@@ -600,11 +454,13 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         pluginScope.launch {
             val response = aiLayer.getExplanation(phrase, memoryStore.buildPersonalizedGemmaContext())
             withContext(Dispatchers.Main) {
-                result.success(mapOf(
-                    "explanation" to response.value,
-                    "source" to response.source.name.lowercase(),
-                    "latency_ms" to response.latencyMs,
-                ))
+                result.success(
+                    mapOf(
+                        "explanation" to response.value,
+                        "source" to response.source.name.lowercase(),
+                        "latency_ms" to response.latencyMs,
+                    )
+                )
             }
         }
     }
@@ -628,11 +484,13 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
                 )
             }
             withContext(Dispatchers.Main) {
-                result.success(mapOf(
-                    "exercises" to mapped,
-                    "source" to response.source.name.lowercase(),
-                    "latency_ms" to response.latencyMs,
-                ))
+                result.success(
+                    mapOf(
+                        "exercises" to mapped,
+                        "source" to response.source.name.lowercase(),
+                        "latency_ms" to response.latencyMs,
+                    )
+                )
             }
         }
     }
@@ -646,16 +504,46 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             memoryStore.addRecentContext("$speakerRole said: $spokenText")
             val coach = response.value
             withContext(Dispatchers.Main) {
-                result.success(mapOf(
-                    "speaker_role" to coach.speakerRole,
-                    "spoken_text" to coach.spokenText,
-                    "translation" to coach.translation,
-                    "better_way" to coach.betterWay,
-                    "coach_tip" to coach.coachTip,
-                    "next_prompt" to coach.nextPromptSuggestion,
-                    "source" to response.source.name.lowercase(),
-                    "latency_ms" to response.latencyMs,
-                ))
+                result.success(
+                    mapOf(
+                        "speaker_role" to coach.speakerRole,
+                        "spoken_text" to coach.spokenText,
+                        "translation" to coach.translation,
+                        "better_way" to coach.betterWay,
+                        "coach_tip" to coach.coachTip,
+                        "next_prompt" to coach.nextPromptSuggestion,
+                        "source" to response.source.name.lowercase(),
+                        "latency_ms" to response.latencyMs,
+                    )
+                )
+            }
+        }
+    }
+
+    private fun handleEvaluateSpokenIntent(call: MethodCall, result: Result) {
+        val targetPhrase = call.argument<String>("target_phrase") ?: ""
+        val prompt = call.argument<String>("prompt") ?: ""
+        val spokenText = call.argument<String>("spoken_text") ?: ""
+
+        pluginScope.launch {
+            val response = aiLayer.evaluateSpokenIntent(
+                targetPhrase = targetPhrase,
+                prompt = prompt,
+                spokenText = spokenText,
+                ctx = sessionCtx,
+            )
+            val res = response.value
+            withContext(Dispatchers.Main) {
+                result.success(
+                    mapOf(
+                        "is_matched" to res.isMatched,
+                        "confidence" to res.confidence,
+                        "feedback" to res.feedback,
+                        "better_way" to res.betterWay,
+                        "source" to response.source.name.lowercase(),
+                        "latency_ms" to response.latencyMs,
+                    )
+                )
             }
         }
     }
@@ -728,19 +616,21 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             val response = aiLayer.generateDailyMission(ctx)
             val mission = response.value
             withContext(Dispatchers.Main) {
-                result.success(mapOf(
-                    "title" to mission.title,
-                    "native_title" to mission.nativeTitle,
-                    "npc_role" to mission.npcRole,
-                    "objective" to mission.objective,
-                    "objective_native" to mission.objectiveNative,
-                    "opener_l2" to mission.openerL2,
-                    "opener_l1" to mission.openerL1,
-                    "target_words" to mission.targetWords,
-                    "max_turns" to mission.maxTurns,
-                    "source" to response.source.name.lowercase(),
-                    "latency_ms" to response.latencyMs,
-                ))
+                result.success(
+                    mapOf(
+                        "title" to mission.title,
+                        "native_title" to mission.nativeTitle,
+                        "npc_role" to mission.npcRole,
+                        "objective" to mission.objective,
+                        "objective_native" to mission.objectiveNative,
+                        "opener_l2" to mission.openerL2,
+                        "opener_l1" to mission.openerL1,
+                        "target_words" to mission.targetWords,
+                        "max_turns" to mission.maxTurns,
+                        "source" to response.source.name.lowercase(),
+                        "latency_ms" to response.latencyMs,
+                    )
+                )
             }
         }
     }
@@ -764,17 +654,24 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             }
 
             withContext(Dispatchers.Main) {
-                result.success(mapOf(
-                    "heard_phrase" to analysis.heardPhrase,
-                    "meaning_l1" to analysis.meaningL1,
-                    "tone_intent" to analysis.toneIntent,
-                    "important_words" to analysis.importantWords.map { mapOf("word" to it.word, "meaning" to it.meaning) },
-                    "suggested_reply_l2" to analysis.suggestedReplyL2,
-                    "reply_meaning_l1" to analysis.replyMeaningL1,
-                    "reply_roman" to analysis.replyRoman,
-                    "source" to response.source.name.lowercase(),
-                    "latency_ms" to response.latencyMs,
-                ))
+                result.success(
+                    mapOf(
+                        "heard_phrase" to analysis.heardPhrase,
+                        "meaning_l1" to analysis.meaningL1,
+                        "tone_intent" to analysis.toneIntent,
+                        "important_words" to analysis.importantWords.map {
+                            mapOf(
+                                "word" to it.word,
+                                "meaning" to it.meaning
+                            )
+                        },
+                        "suggested_reply_l2" to analysis.suggestedReplyL2,
+                        "reply_meaning_l1" to analysis.replyMeaningL1,
+                        "reply_roman" to analysis.replyRoman,
+                        "source" to response.source.name.lowercase(),
+                        "latency_ms" to response.latencyMs,
+                    )
+                )
             }
         }
     }
