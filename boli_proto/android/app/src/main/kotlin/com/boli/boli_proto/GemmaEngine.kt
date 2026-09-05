@@ -90,10 +90,13 @@ class GemmaEngine(private val context: Context) {
     // -------------------------------------------------------------------------
 
     /** Build session options (topK / temperature live here in 0.10.x). */
-    private fun sessionOptions(): LlmInferenceSessionOptions =
+    private fun sessionOptions(
+        temperature: Float = STRUCTURED_TEMPERATURE,
+        topK: Int = TOP_K,
+    ): LlmInferenceSessionOptions =
         LlmInferenceSessionOptions.builder()
-            .setTopK(TOP_K)
-            .setTemperature(TEMPERATURE)
+            .setTopK(topK)
+            .setTemperature(temperature)
             .build()
 
     // -------------------------------------------------------------------------
@@ -104,8 +107,15 @@ class GemmaEngine(private val context: Context) {
      * Generates a completion for [prompt].
      * Returns null if the engine is not available or generation fails.
      * Callers must handle null by routing to [DeterministicFallback].
+     *
+     * @param temperature Lower (~0.2) for structured extractions/lessons,
+     *                    higher (~0.7) for conversational roleplay.
      */
-    suspend fun generate(prompt: String): String? {
+    suspend fun generate(
+        prompt: String,
+        temperature: Float = STRUCTURED_TEMPERATURE,
+        topK: Int = TOP_K,
+    ): String? {
         if (!isAvailable) return null
         val inference = llmInference ?: return null
 
@@ -115,12 +125,15 @@ class GemmaEngine(private val context: Context) {
                     val t0 = System.currentTimeMillis()
                     // Create a fresh session for each generate call so KV-cache
                     // doesn't accumulate across unrelated prompts.
-                    val session = LlmInferenceSession.createFromOptions(inference, sessionOptions())
+                    val session = LlmInferenceSession.createFromOptions(
+                        inference,
+                        sessionOptions(temperature = temperature, topK = topK),
+                    )
                     session.addQueryChunk(prompt)
                     val result = session.generateResponse()
                     session.close()
                     val ms = System.currentTimeMillis() - t0
-                    Log.i(TAG, "generate: ${result?.length ?: 0} chars in ${ms}ms -> ${result?.take(120)?.replace('\n', ' ')}")
+                    Log.i(TAG, "generate [temp=$temperature]: ${result?.length ?: 0} chars in ${ms}ms -> ${result?.take(120)?.replace('\n', ' ')}")
                     result
                 }
             }
@@ -242,8 +255,11 @@ class GemmaEngine(private val context: Context) {
         )
         const val MODEL_FILENAME = "gemma-2b-it-cpu-int4.bin"
         private const val MAX_OUTPUT_TOKENS = 512
-        private const val TOP_K = 40
-        private const val TEMPERATURE = 0.7f
+        const val TOP_K = 40
+        /** Deterministic, rule-adhering temperature for structured OCR/lesson extraction. */
+        const val STRUCTURED_TEMPERATURE = 0.2f
+        /** Higher variance temperature for conversational and creative roleplay turns. */
+        const val ROLEPLAY_TEMPERATURE = 0.7f
         /** Guard against truncated pushes — anything below 100 MB is suspicious. */
         private const val MIN_MODEL_SIZE_BYTES = 100L * 1_048_576
     }

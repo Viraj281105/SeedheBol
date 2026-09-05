@@ -273,8 +273,12 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         pluginScope.launch {
             runCatching {
                 val ocrResult = ocr.recognizeBytes(imageBytes)
-                // Return as list of lines for backwards compatibility with IBoliBridge
-                ocrResult.text.lines().filter { it.isNotBlank() }
+                val cleaned = aiLayer.cleanOcrText(ocrResult.text)
+                val lines = (if (cleaned.isNotBlank()) cleaned else ocrResult.text)
+                    .lines()
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                lines
             }.fold(
                 onSuccess = { lines ->
                     withContext(Dispatchers.Main) { result.success(lines) }
