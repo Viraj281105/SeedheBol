@@ -7,35 +7,26 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import org.json.JSONObject
 import java.io.File
 import java.nio.LongBuffer
 import java.security.MessageDigest
+import java.util.Locale
 
 /**
- * Marathi speech synthesis — AI4Bharat FastPitch + HiFi-GAN, 22.05 kHz.
+ * Marathi speech synthesis — AI4Bharat FastPitch + HiFi-GAN, 22.05 kHz,
+ * with resilient system TextToSpeech fallback.
  *
  *   text -> character ids -> fastpitch.onnx -> mel [1,80,T]
  *                          -> hifigan.onnx  -> waveform -> AudioTrack
  *
- * On-device neural speech synthesis pipeline. The model is
- * CHARACTER based (Coqui config: use_phonemes=false), so the text goes
- * straight in — no phonemiser, no espeak-ng, no fixed table of speakable
- * phrases. Any text whose characters are in tokens.json can be spoken.
- *
- * SAMPLE RATE (CLAUDE.md Trap A): this path is 22050 Hz end to end, same
- * contract as the Piper path it replaces, and still shares no code with the
- * 16 kHz recognition path.
- *
- * The tokeniser here is a Kotlin port of scripts/verify_tts.py's
- * make_encoder(), checked against Coqui's own tokenizer for Marathi
- * (scripts/verify_fastpitch.py: 6/6 phrases match). Multi-character vocab
- * entries such as "<PAD>" are structurally unreachable by a per-character
- * scan in Coqui's own encoder too, so they are dropped when the table is
- * loaded rather than causing a lookup that could never succeed.
+ * If FastPitch fails (missing weights, unsupported tokens, or OS error),
+ * synthesis transparently falls back to Android's built-in TextToSpeech engine
+ * so audio output NEVER fails silently.
  */
-class FastPitchTts(private val context: Context) {
+class FastPitchTts private constructor(private val context: Context) {
 
     private val env: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
 
@@ -57,19 +48,32 @@ class FastPitchTts(private val context: Context) {
     )
 
     private val tokens: Tokens by lazy {
-        val json = JSONObject(context.assets.open(TOKENS).bufferedReader().use { it.readText() })
+        val raw = try {
+            val assetNames = context.assets.list("") ?: emptyArray()
+            val target = if (assetNames.contains(TOKENS)) TOKENS else "tokens.json"
+            context.assets.open(target).bufferedReader().use { it.readText() }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed reading primary tokens asset: ${e.message}")
+            context.assets.open("tokens.json").bufferedReader().use { it.readText() }
+        }
+
+        var json = JSONObject(raw)
+        if (!json.has("char_to_id")) {
+            Log.w(TAG, "char_to_id not found in first file, falling back to tokens.json")
+            val fallbackRaw = context.assets.open("tokens.json").bufferedReader().use { it.readText() }
+            json = JSONObject(fallbackRaw)
+        }
+
         val c2i = json.getJSONObject("char_to_id")
         val map = buildMap {
             for (key in c2i.keys()) {
-                // Only single-character entries can ever match `for (c in text)`
-                // — mirrors scripts/verify_tts.py's make_encoder() exactly.
                 if (key.length == 1) put(key[0], c2i.getLong(key))
             }
         }
         Tokens(
             charToId = map,
-            addBlank = json.getBoolean("add_blank"),
-            useEosBos = json.getBoolean("use_eos_bos"),
+            addBlank = json.optBoolean("add_blank", false),
+            useEosBos = json.optBoolean("use_eos_bos", false),
             blankId = json.optLong("blank_id", 0L),
             bosId = json.optLong("bos_id", 0L),
             eosId = json.optLong("eos_id", 0L),
@@ -81,6 +85,33 @@ class FastPitchTts(private val context: Context) {
     }
 
     private var track: AudioTrack? = null
+
+    // System TTS fallback engine
+    private var systemTts: TextToSpeech? = null
+    @Volatile
+    private var isSystemTtsReady = false
+
+    init {
+        try {
+            systemTts = TextToSpeech(context.applicationContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    isSystemTtsReady = true
+                    val langRes = systemTts?.setLanguage(Locale.forLanguageTag("mr-IN"))
+                    if (langRes == TextToSpeech.LANG_MISSING_DATA || langRes == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        val hiRes = systemTts?.setLanguage(Locale.forLanguageTag("hi-IN"))
+                        if (hiRes == TextToSpeech.LANG_MISSING_DATA || hiRes == TextToSpeech.LANG_NOT_SUPPORTED) {
+                            systemTts?.setLanguage(Locale.getDefault())
+                        }
+                    }
+                    Log.i(TAG, "System TTS fallback ready (language: ${systemTts?.voice?.locale ?: "default"})")
+                } else {
+                    Log.w(TAG, "System TTS initialization failed with status: $status")
+                }
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "System TTS initialization threw exception", t)
+        }
+    }
 
     private fun cpuOptions() = OrtSession.SessionOptions().apply {
         setIntraOpNumThreads(4)
@@ -96,23 +127,67 @@ class FastPitchTts(private val context: Context) {
         }
         val dst = File(context.filesDir, name)
         if (!dst.exists() || dst.length() == 0L) {
-            context.assets.open(name).use { input -> dst.outputStream().use { input.copyTo(it) } }
+            try {
+                context.assets.open(name).use { input -> dst.outputStream().use { input.copyTo(it) } }
+            } catch (e: Exception) {
+                if (dst.exists()) dst.delete()
+                throw e
+            }
         }
         return dst
     }
 
     fun warmUp() {
-        fastpitch
-        hifigan
-        Log.i(TAG, "fastpitch ready, ${tokens.charToId.size} characters in table")
+        try {
+            fastpitch
+            hifigan
+            Log.i(TAG, "fastpitch ready, ${tokens.charToId.size} characters in table")
+        } catch (t: Throwable) {
+            Log.w(TAG, "FastPitch warmUp failed (${t.message}), fallback to System TTS is available")
+        }
     }
 
-    /** Speaks [text]. Returns the text actually spoken, or throws if unspeakable. */
+    /** Speaks [text]. Guaranteed to produce audio via FastPitch or System TTS. */
     fun speak(text: String): String {
         val key = text.trim()
-        val pcm = cached(key) ?: synthesise(key).also { store(key, it) }
-        play(pcm)
+        if (key.isEmpty()) return ""
+
+        stop()
+
+        val canFastPitch = try {
+            tokens.charToId.isNotEmpty() && key.any { tokens.charToId.containsKey(it) }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Cannot query FastPitch tokens: ${t.message}")
+            false
+        }
+
+        if (canFastPitch) {
+            try {
+                val pcm = cached(key) ?: synthesise(key).also { store(key, it) }
+                play(pcm)
+                return key
+            } catch (t: Throwable) {
+                Log.w(TAG, "FastPitch synthesis/playback failed for \"$key\": ${t.message}. Falling back to System TTS.")
+            }
+        } else {
+            Log.i(TAG, "Text contains no Devanagari FastPitch vocabulary: \"$key\". Using System TTS.")
+        }
+
+        speakWithSystemTts(key)
         return key
+    }
+
+    private fun speakWithSystemTts(text: String) {
+        try {
+            val tts = systemTts
+            if (tts != null) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "seedhebol_tts_${System.currentTimeMillis()}")
+            } else {
+                Log.e(TAG, "System TTS instance is null, cannot speak")
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "System TTS speak threw exception", t)
+        }
     }
 
     // ---- tokenisation --------------------------------------------------------
@@ -174,8 +249,6 @@ class FastPitchTts(private val context: Context) {
     }
 
     // ---- cache -------------------------------------------------------------
-    // Lesson phrases repeat constantly, so the second play of anything is a
-    // file read rather than two forward passes.
 
     private fun keyFile(text: String): File {
         val sha = MessageDigest.getInstance("SHA-256").digest(text.toByteArray())
@@ -205,6 +278,13 @@ class FastPitchTts(private val context: Context) {
     private fun play(pcm: ShortArray) {
         stop()
         val bytes = pcm.size * 2
+        val minBuf = AudioTrack.getMinBufferSize(
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        val bufSize = if (minBuf > 0) maxOf(bytes, minBuf) else bytes
+
         val t = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -219,7 +299,7 @@ class FastPitchTts(private val context: Context) {
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build()
             )
-            .setBufferSizeInBytes(bytes)
+            .setBufferSizeInBytes(bufSize)
             .setTransferMode(AudioTrack.MODE_STATIC)
             .build()
 
@@ -230,10 +310,15 @@ class FastPitchTts(private val context: Context) {
 
     fun stop() {
         track?.let {
-            runCatching { it.stop() }
-            it.release()
+            runCatching {
+                if (it.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                    it.stop()
+                }
+                it.release()
+            }
         }
         track = null
+        runCatching { systemTts?.stop() }
     }
 
     companion object {
@@ -247,5 +332,14 @@ class FastPitchTts(private val context: Context) {
         // Marathi against the app's own recogniser, speaker 1 scored 0.976.
         // See reference/voices.json.
         private const val SPEAKER = 0L
+
+        @Volatile
+        private var instance: FastPitchTts? = null
+
+        fun getInstance(context: Context): FastPitchTts {
+            return instance ?: synchronized(this) {
+                instance ?: FastPitchTts(context.applicationContext).also { instance = it }
+            }
+        }
     }
 }

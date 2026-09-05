@@ -261,11 +261,11 @@ class GemmaEngine(private val context: Context) {
         )
         const val MODEL_FILENAME = "gemma-2b-it-cpu-int4.bin"
         private const val MAX_OUTPUT_TOKENS = 512
-        const val TOP_K = 40
+        const val TOP_K = 25
         /** Deterministic, rule-adhering temperature for structured OCR/lesson extraction. */
-        const val STRUCTURED_TEMPERATURE = 0.2f
-        /** Higher variance temperature for conversational and creative roleplay turns. */
-        const val ROLEPLAY_TEMPERATURE = 0.7f
+        const val STRUCTURED_TEMPERATURE = 0.15f
+        /** Controlled temperature for conversational turns that prevents INT4 repetition loops. */
+        const val ROLEPLAY_TEMPERATURE = 0.25f
         /** Guard against truncated pushes — anything below 100 MB is suspicious. */
         private const val MIN_MODEL_SIZE_BYTES = 100L * 1_048_576
     }

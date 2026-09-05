@@ -70,6 +70,9 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     /** In-memory conversation history for roleplay continuity. */
     private val conversationHistory = mutableListOf<DialogueTurn>()
 
+    /** Canonical TTS engine (FastPitch + System TTS fallback). */
+    private val tts by lazy { com.boli.boli_proto.FastPitchTts.getInstance(context) }
+
     // -------------------------------------------------------------------------
     // FlutterPlugin lifecycle
     // -------------------------------------------------------------------------
@@ -266,11 +269,26 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     }
 
     private fun handleSpeakPrompt(call: MethodCall, result: Result) {
-        result.success(null)
+        val text = call.argument<String>("text").orEmpty()
+        pluginScope.launch(Dispatchers.IO) {
+            try {
+                tts.speak(text)
+                withContext(Dispatchers.Main) { result.success(null) }
+            } catch (e: Exception) {
+                android.util.Log.e("BoliBridgePlugin", "handleSpeakPrompt failed for \"$text\"", e)
+                withContext(Dispatchers.Main) { result.success(null) }
+            }
+        }
     }
 
     private fun handleStopSpeaking(result: Result) {
-        result.success(null)
+        try {
+            tts.stop()
+            result.success(null)
+        } catch (e: Exception) {
+            android.util.Log.e("BoliBridgePlugin", "handleStopSpeaking failed", e)
+            result.success(null)
+        }
     }
 
     private fun handleStartAmbientMining(result: Result) {

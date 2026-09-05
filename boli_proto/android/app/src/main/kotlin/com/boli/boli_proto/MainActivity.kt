@@ -29,7 +29,7 @@ class MainActivity : FlutterActivity() {
     private val asr by lazy { OnnxAsr(applicationContext) }
 
     // Canonical on-device speech synthesis via AI4Bharat FastPitch + HiFi-GAN (22.05 kHz).
-    private val tts by lazy { FastPitchTts(applicationContext) }
+    private val tts by lazy { FastPitchTts.getInstance(applicationContext) }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

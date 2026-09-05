@@ -141,15 +141,21 @@ class BoliAiLayer(
     ): MicroLesson {
         val fallback = deterministic.generateMicroLesson(cleanOcrText.take(30), ctx)
 
-        val topic = if (lesson.topic.isNotBlank()) lesson.topic else {
+        val topic = if (lesson.topic.isNotBlank() && !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.topic)) {
+            lesson.topic
+        } else {
             cleanOcrText.lines().firstOrNull()?.take(30) ?: fallback.topic
         }
 
-        val translation = if (lesson.translation.isNotBlank()) lesson.translation else {
+        val translation = if (lesson.translation.isNotBlank() && !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.translation)) {
+            lesson.translation
+        } else {
             deterministic.translateOcrText(cleanOcrText, ctx)
         }
 
-        val explanation = if (lesson.explanation.isNotBlank()) lesson.explanation else {
+        val explanation = if (lesson.explanation.isNotBlank() && !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.explanation)) {
+            lesson.explanation
+        } else {
             if (translation.isNotBlank() && !translation.startsWith("[")) {
                 "कार्यस्थल पर सुरक्षा और निर्देश का बोर्ड।"
             } else {
@@ -162,7 +168,11 @@ class BoliAiLayer(
             if (extracted.isNotEmpty()) extracted else fallback.vocabulary
         }
 
-        val practice = if (lesson.practicePrompt.isNotBlank()) lesson.practicePrompt else {
+        val practice = if (lesson.practicePrompt.isNotBlank() &&
+            !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.practicePrompt) &&
+            LlmOutputSanitizer.matchesScript(lesson.practicePrompt, ctx.l2)) {
+            lesson.practicePrompt
+        } else {
             if (vocabulary.isNotEmpty()) {
                 "${vocabulary.first().l2Word} येथे वापरा."
             } else {
@@ -278,26 +288,30 @@ class BoliAiLayer(
             val prompt = GemmaPromptBuilder.buildRoleplayNextTurnPrompt(historyWithUser, ctx)
             val raw = gemma.generate(prompt, temperature = GemmaEngine.ROLEPLAY_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
-                val turn = parseRoleplayResponse(raw)
-                val ms = System.currentTimeMillis() - t0
-                Log.i(TAG, "Gemma roleplay turn in ${ms}ms")
-                return mapOf(
-                    "recognized_transcript" to userSpokenText,
-                    "is_intent_matched" to true,
-                    "matched_intent" to "gemma_response",
-                    "next_node_id" to "gemma_node",
-                    "prompt_l2" to turn.text,
-                    "prompt_transliteration" to "",
-                    "prompt_l1" to turn.l1Text,
-                    "pre_rendered_audio_path" to null,
-                    "pronunciation_score" to null,
-                    "weak_phonemes" to emptyList<String>(),
-                    "articulatory_hint" to turn.hint,
-                    "natural_phrasing" to turn.betterWay,
-                    "intent_explanation" to turn.feedback,
-                    "ai_source" to "gemma",
-                    "latency_ms" to ms,
-                )
+                val turn = parseRoleplayResponse(raw, ctx)
+                if (turn != null && LlmOutputSanitizer.isValidL2Output(turn.text, ctx.l2)) {
+                    val ms = System.currentTimeMillis() - t0
+                    Log.i(TAG, "Gemma roleplay turn in ${ms}ms")
+                    return mapOf(
+                        "recognized_transcript" to userSpokenText,
+                        "is_intent_matched" to true,
+                        "matched_intent" to "gemma_response",
+                        "next_node_id" to "gemma_node",
+                        "prompt_l2" to turn.text,
+                        "prompt_transliteration" to "",
+                        "prompt_l1" to turn.l1Text,
+                        "pre_rendered_audio_path" to null,
+                        "pronunciation_score" to null,
+                        "weak_phonemes" to emptyList<String>(),
+                        "articulatory_hint" to turn.hint,
+                        "natural_phrasing" to turn.betterWay,
+                        "intent_explanation" to turn.feedback,
+                        "ai_source" to "gemma",
+                        "latency_ms" to ms,
+                    )
+                } else {
+                    Log.w(TAG, "Gemma roleplay turn failed validation or repetition checks, falling back to deterministic")
+                }
             }
         }
         // Fallback: preserve original stub response
@@ -372,7 +386,7 @@ class BoliAiLayer(
         val t0 = System.currentTimeMillis()
         if (gemma.isAvailable) {
             val prompt = GemmaPromptBuilder.buildDailyMissionPrompt(ctx)
-            val raw = gemma.generate(prompt, temperature = 0.5f)
+            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val parsed = parseDailyMission(raw, ctx)
                 if (parsed != null) {
@@ -401,7 +415,7 @@ class BoliAiLayer(
 
         if (gemma.isAvailable) {
             val prompt = GemmaPromptBuilder.buildListenAroundPrompt(cleanedPhrase, ctx)
-            val raw = gemma.generate(prompt, temperature = 0.4f)
+            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val parsed = parseHeardPhraseAnalysis(raw, cleanedPhrase, ctx)
                 if (parsed != null) {
@@ -475,14 +489,42 @@ class BoliAiLayer(
     private fun parseDailyMission(raw: String, ctx: GemmaContext): DailyMission? {
         val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
         val title = findTagValue(lines, "TITLE") ?: return null
+        if (LlmOutputSanitizer.hasDegenerativeRepetition(title)) {
+            Log.w(TAG, "Gemma title rejected due to repetition: '$title'")
+            return null
+        }
         val nativeTitle = findTagValue(lines, "NATIVE_TITLE|MARATHI_TITLE") ?: title
+        if (LlmOutputSanitizer.hasDegenerativeRepetition(nativeTitle)) {
+            Log.w(TAG, "Gemma nativeTitle rejected due to repetition: '$nativeTitle'")
+            return null
+        }
         val npcRole = findTagValue(lines, "NPC_ROLE|ROLE|PERSONA") ?: "Supervisor"
         val objective = findTagValue(lines, "OBJECTIVE|GOAL") ?: "Complete the workplace conversation."
         val objectiveNative = findTagValue(lines, "OBJECTIVE_NATIVE|GOAL_NATIVE") ?: objective
-        val openerL2 = findTagValue(lines, "OPENER_L2|OPENER|FIRST_TURN") ?: "काम कसे चालले आहे?"
-        val openerL1 = findTagValue(lines, "OPENER_L1|OPENER_MEANING") ?: "काम कैसा चल रहा है?"
+
+        var openerL2 = findTagValue(lines, "OPENER_L2|OPENER|FIRST_TURN") ?: return null
+        if (LlmOutputSanitizer.hasDegenerativeRepetition(openerL2)) {
+            val sanitized = LlmOutputSanitizer.sanitize(openerL2)
+            if (sanitized != null && sanitized.length >= 6) {
+                openerL2 = sanitized
+            } else {
+                Log.w(TAG, "Gemma openerL2 rejected due to repetition loop: '$openerL2'")
+                return null
+            }
+        }
+        if (!LlmOutputSanitizer.matchesScript(openerL2, ctx.l2)) {
+            Log.w(TAG, "Gemma openerL2 script mismatch for ${ctx.l2}: '$openerL2'")
+            return null
+        }
+
+        var openerL1 = findTagValue(lines, "OPENER_L1|OPENER_MEANING") ?: ""
+        if (openerL1.isNotBlank() && LlmOutputSanitizer.hasDegenerativeRepetition(openerL1)) {
+            openerL1 = LlmOutputSanitizer.sanitize(openerL1) ?: ""
+        }
+
         val targetWordsStr = findTagValue(lines, "TARGET_WORDS|WORDS") ?: ""
-        val targetWords = targetWordsStr.split(",", ";").map { it.trim() }.filter { it.isNotBlank() }
+        val targetWords = targetWordsStr.split(",", ";").map { it.trim() }
+            .filter { it.isNotBlank() && !LlmOutputSanitizer.hasDegenerativeRepetition(it) }
         val maxTurns = findTagValue(lines, "MAX_TURNS|TURNS")?.toIntOrNull() ?: 4
 
         return DailyMission(
@@ -502,10 +544,21 @@ class BoliAiLayer(
     private fun parseHeardPhraseAnalysis(raw: String, phrase: String, ctx: GemmaContext): HeardPhraseAnalysis? {
         val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
         val meaning = findTagValue(lines, "MEANING|TRANSLATION|HINDI_MEANING") ?: return null
+        if (LlmOutputSanitizer.hasDegenerativeRepetition(meaning)) return null
+
         val tone = findTagValue(lines, "TONE_INTENT|TONE|INTENT") ?: "सूचना / Instruction"
         val wordsRaw = findTagValue(lines, "IMPORTANT_WORDS|WORDS|VOCAB") ?: ""
-        val replyL2 = findTagValue(lines, "NATURAL_REPLY|REPLY|REPLY_L2") ?: "हो, समजले."
-        val replyL1 = findTagValue(lines, "REPLY_NATIVE|REPLY_L1|REPLY_MEANING") ?: "हाँ, समझ गया।"
+        var replyL2 = findTagValue(lines, "NATURAL_REPLY|REPLY|REPLY_L2") ?: return null
+        if (!LlmOutputSanitizer.isValidL2Output(replyL2, ctx.l2)) {
+            val sanitized = LlmOutputSanitizer.sanitize(replyL2)
+            if (sanitized != null && LlmOutputSanitizer.isValidL2Output(sanitized, ctx.l2)) {
+                replyL2 = sanitized
+            } else {
+                Log.w(TAG, "Gemma replyL2 invalid for ${ctx.l2}: '$replyL2'")
+                return null
+            }
+        }
+        val replyL1 = findTagValue(lines, "REPLY_NATIVE|REPLY_L1|REPLY_MEANING") ?: ""
         val replyRoman = findTagValue(lines, "REPLY_ROMAN|ROMAN") ?: ""
 
         val wordList = mutableListOf<WordMeaning>()
@@ -584,9 +637,24 @@ class BoliAiLayer(
      *   FEEDBACK: <feedback on learner's utterance>
      *   HINT: <pronunciation tip or "none">
      */
-    private fun parseRoleplayResponse(raw: String): DialogueTurn {
+    private fun parseRoleplayResponse(raw: String, ctx: GemmaContext): DialogueTurn? {
         val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
-        val l2Text = findTagValue(lines, "L2|REPLY|RESPONSE") ?: cleanLine(raw.lines().firstOrNull() ?: "").take(100)
+        var l2Text = findTagValue(lines, "L2|REPLY|RESPONSE") ?: cleanLine(raw.lines().firstOrNull() ?: "").take(100)
+        if (l2Text.isBlank()) return null
+        if (LlmOutputSanitizer.hasDegenerativeRepetition(l2Text)) {
+            val sanitized = LlmOutputSanitizer.sanitize(l2Text)
+            if (sanitized != null && sanitized.length >= 4) {
+                l2Text = sanitized
+            } else {
+                Log.w(TAG, "Gemma roleplay response rejected due to repetition: '$l2Text'")
+                return null
+            }
+        }
+        if (!LlmOutputSanitizer.matchesScript(l2Text, ctx.l2)) {
+            Log.w(TAG, "Gemma roleplay response script mismatch for ${ctx.l2}: '$l2Text'")
+            return null
+        }
+
         val l1Text = findTagValue(lines, "L1|TRANSLATION") ?: ""
         val betterWay = findTagValue(lines, "BETTER|NATURAL|POLISH") ?: ""
         val feedback = findTagValue(lines, "FEEDBACK|DIAGNOSTIC|NOTE") ?: ""

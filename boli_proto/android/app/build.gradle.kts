@@ -46,6 +46,9 @@ android {
             )
         }
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {
@@ -55,6 +58,9 @@ kotlin {
 }
 
 dependencies {
+    // Unit Testing
+    testImplementation("junit:junit:4.13.2")
+
     // CPU execution provider only. The iQOO 15 is Snapdragon 8 Elite Gen 5;
     // QNN/HTP delegation is possible for future work but not claimed here.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")

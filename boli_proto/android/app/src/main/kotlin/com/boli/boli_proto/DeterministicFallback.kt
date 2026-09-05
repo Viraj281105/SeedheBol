@@ -178,28 +178,92 @@ class DeterministicFallback {
     // Roleplay — extracted from BoliBridgePlugin.kt (previous hardcoded response)
     // --------------------------------------------------------------------------
 
+    private data class FallbackRoleplayData(
+        val l2: String,
+        val l1: String,
+        val better: String,
+        val hint: String,
+    )
+
     fun nextRoleplayTurn(
         history: List<DialogueTurn>,
         situationId: String,
         currentNodeId: String,
         ctx: GemmaContext,
     ): Map<String, Any?> {
-        // Preserve the exact hardcoded response that was in BoliBridgePlugin
-        // so existing demo behaviour is unchanged when Gemma is absent.
         val userText = history.lastOrNull { it.speaker == "user" }?.text ?: ""
+        val l2 = ctx.l2.lowercase()
+
+        val roleplayData = when {
+            l2.startsWith("mr") || l2.contains("marathi") -> FallbackRoleplayData(
+                l2 = "होय, काम वेळेवर पूर्ण झाले पाहिजे. साहित्याची तपासणी केली का?",
+                l1 = "हाँ, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
+                better = "होय, मी काम पूर्ण करून तपासणी केली आहे.",
+                hint = "‘ळ’ चा उच्चार स्पष्ट करा, जिभेचा शेंडा टाळूला लावा."
+            )
+            l2.startsWith("hi") || l2.contains("hindi") -> FallbackRoleplayData(
+                l2 = "हाँ, काम समय पर पूरा होना चाहिए। क्या आपने सामान की जांच कर ली?",
+                l1 = "हाँ, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
+                better = "हाँ, मैंने काम पूरा करके जांच कर ली है।",
+                hint = "स्पष्ट आवाज में बोलें।"
+            )
+            l2.startsWith("te") || l2.contains("telugu") -> FallbackRoleplayData(
+                l2 = "సరే, పని సమయానికి పూర్తి కావాలి. సామగ్రిని తనిખీ చేశారా?",
+                l1 = "ठीक है, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
+                better = "అవును, నేను పని పూర్తి చేసి తనిఖీ చేశాను.",
+                hint = "స్పష్టంగా మాట్లాడండి."
+            )
+            l2.startsWith("kn") || l2.contains("kannada") -> FallbackRoleplayData(
+                l2 = "ಸರಿ, ಕೆಲಸ ಸಮಯಕ್ಕೆ ಮುಗಿಯಬೇಕು. ಸಾಮಗ್ರಿ ಪರಿಶೀಲನೆ ಮಾಡಿದ್ದೀರಾ?",
+                l1 = "ठीक है, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
+                better = "ಹೌದು, ನಾನು ಕೆಲಸ ಮುಗಿಸಿ ಪರಿಶೀಲಿಸಿದ್ದೇನೆ.",
+                hint = "ಸ್ಪಷ್ಟವಾಗಿ ಮಾತನಾಡಿ."
+            )
+            l2.startsWith("ml") || l2.contains("malayalam") -> FallbackRoleplayData(
+                l2 = "ശരി, ജോലി സമയത്തിന് തീരണം. സാധനങ്ങൾ പരിശോധിച്ചോ?",
+                l1 = "ठीक है, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
+                better = "അതെ, ഞാൻ ജോലി പൂർത്തിയാക്കി പരിശോധിച്ചു.",
+                hint = "വ്യക്തമായി സംസാരിക്കുക."
+            )
+            l2.startsWith("bn") || l2.contains("bengali") -> FallbackRoleplayData(
+                l2 = "ঠিক আছে, কাজ সময়মতো শেষ করতে হবে। মালপত্র পরীক্ষা করেছেন?",
+                l1 = "ठीक है, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
+                better = "হ্যাঁ, আমি কাজ শেষ করে পরীক্ষা করেছি।",
+                hint = "স্পষ্টভাবে কথা বলুন।"
+            )
+            l2.startsWith("gu") || l2.contains("gujarati") -> FallbackRoleplayData(
+                l2 = "બરાબર, કામ સમયસર પૂરું થવું જોઈએ. સામાન ચકાસી લીધો?",
+                l1 = "ठीक है, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
+                better = "હા, મેં કામ પૂરું કરીને ચકાસી લીધું છે.",
+                hint = "સ્પષ્ટ અવાજે બોલો."
+            )
+            l2.startsWith("or") || l2.contains("odia") -> FallbackRoleplayData(
+                l2 = "ଠିକ୍ ଅଛି, କାମ ଠିକ୍ ସମୟରେ ସରିବା ଦରକାର। ସାମଗ୍ରୀ ଯାଞ୍ଚ କଲେଣି?",
+                l1 = "ठीक है, काम समय पर पूरा होना चाहिए। क्या सामान की जांच कर ली?",
+                better = "ହଁ, ମୁଁ କାମ ସାରି ଯାଞ୍ଚ କରିସାରିଛି।",
+                hint = "ସ୍ପଷ୍ଟ ଭାବରେ କୁହନ୍ତୁ।"
+            )
+            else -> FallbackRoleplayData(
+                l2 = "சரி, சிமெண்ட் கலவை விகிதம் என்ன? சரியாக கலந்தீர்களா?",
+                l1 = "ठीक है, सीमेंट मिश्रण का अनुपात क्या है? क्या ठीक से मिलाया?",
+                better = "சரி, நான் வேலையை முடித்துவிட்டேன்.",
+                hint = "நாக்கின் நுனியை மேல் அண்ணத்தில் தொடவும்."
+            )
+        }
+
         return mapOf(
             "recognized_transcript" to userText,
             "is_intent_matched" to true,
-            "matched_intent" to "confirm_mix",
+            "matched_intent" to "workplace_interaction",
             "next_node_id" to "node_02",
-            "prompt_l2" to "सरि, सिमेंट कलवई विगिधम् एन्ना?",
-            "prompt_transliteration" to "Sari, siment kalavai vigidham enna?",
-            "prompt_l1" to "ठीक है, सीमेंट मिश्रण का अनुपात क्या है?",
-            "pre_rendered_audio_path" to "audio/ta_const_03_concrete_mix/mix_01_confirm.wav",
+            "prompt_l2" to roleplayData.l2,
+            "prompt_transliteration" to "",
+            "prompt_l1" to roleplayData.l1,
+            "pre_rendered_audio_path" to null,
             "pronunciation_score" to -0.35,
-            "weak_phonemes" to listOf("ट"),
-            "articulatory_hint" to "जीभ को तालू के पिछले भाग से स्पर्श करें",
-            "natural_phrasing" to "हे काम व्यवस्थित झाले आहे.",
+            "weak_phonemes" to emptyList<String>(),
+            "articulatory_hint" to roleplayData.hint,
+            "natural_phrasing" to roleplayData.better,
             "intent_explanation" to "कामाविषयी संवाद साधला.",
             "ai_source" to "fallback",
         )
@@ -265,45 +329,303 @@ class DeterministicFallback {
     // Daily Mission fallback
     // --------------------------------------------------------------------------
 
+    // Daily Mission fallback (Full 9 Indic languages & workplace occupations)
+    // --------------------------------------------------------------------------
+
     fun generateDailyMission(ctx: GemmaContext): DailyMission {
         val occ = ctx.occupation.lowercase()
+        val l2 = ctx.l2.lowercase()
+        val isDelivery = occ.contains("deliver") || occ.contains("logist")
+        val isSecurity = occ.contains("secur") || occ.contains("guard")
+
         return when {
-            occ.contains("secur") -> DailyMission(
-                title = "Gate Pass Verification",
-                nativeTitle = "गेट पास पडताळणी",
-                npcRole = "व्हिजिटर (Visitor)",
-                objective = "A visitor has arrived without a badge. Politely ask for identification and register them.",
-                objectiveNative = "एक आगंतुक बिना पहचान पत्र के आया है। विनम्रतापूर्वक उनका पहचान पत्र मांगें और एंट्री करें।",
-                openerL2 = "मला मॅनेजरला भेटायला आत जायचे आहे, पण माझे ओळखपत्र सापडत नाही.",
-                openerL1 = "मुझे मैनेजर से मिलने अंदर जाना है, लेकिन मेरा पहचान पत्र नहीं मिल रहा।",
-                targetWords = listOf("ओळखपत्र", "नोंद", "नियम"),
-                maxTurns = 4,
-                source = "fallback",
-            )
-            occ.contains("deliver") -> DailyMission(
-                title = "Clarifying Customer Address",
-                nativeTitle = "ग्राहकाचा पत्ता विचारणे",
-                npcRole = "ग्राहक (Customer)",
-                objective = "You cannot locate the flat number. Call the customer and ask for a landmark.",
-                objectiveNative = "आपको फ्लैट नंबर नहीं मिल रहा। ग्राहक को कॉल करके पास का लैंडमार्क पूछें।",
-                openerL2 = "हॅलो, माझी डिलिव्हरी अजून आली नाही, तुम्ही कुठे थांबला आहात?",
-                openerL1 = "हेलो, मेरी डिलीवरी अभी तक नहीं आई, आप कहां रुके हैं?",
-                targetWords = listOf("पत्ता", "इमारत", "दोन मिनिटे"),
-                maxTurns = 4,
-                source = "fallback",
-            )
-            else -> DailyMission(
-                title = "Asking for 30 More Minutes",
-                nativeTitle = "कामाची वेळ वाढवून मागणे",
-                npcRole = "सुपरवायझर (Site Supervisor)",
-                objective = "Your supervisor asks why the work isn't finished. Explain the issue politely and request 30 more minutes.",
-                objectiveNative = "सुपरवाइजर पूछ रहे हैं काम पूरा क्यों नहीं हुआ। स्थिति समझाएं और 30 मिनट का समय मांगें।",
-                openerL2 = "काम अजून पूर्ण का झाले नाही? आजची शिफ्ट संपत आली आहे.",
-                openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? आज की शिफ्ट खत्म होने वाली है।",
-                targetWords = if (ctx.frequentlyMissedWords.isNotEmpty()) ctx.frequentlyMissedWords.take(3) else listOf("मदत", "अडचण", "वेळ"),
-                maxTurns = 4,
-                source = "fallback",
-            )
+            // Tamil (ta)
+            l2.startsWith("ta") || l2.contains("tamil") -> when {
+                isDelivery -> DailyMission(
+                    title = "Clarifying Delivery Address",
+                    nativeTitle = "முகவரி கேட்டல்",
+                    npcRole = "வாடிக்கையாளர் (Customer)",
+                    objective = "Ask the customer for landmark because the building is unclear.",
+                    objectiveNative = "ग्राहक से पास का लैंडमार्क पूछें ताकि सही इमारत मिल सके।",
+                    openerL2 = "வணக்கம், என் பார்சல் இன்னும் வரவில்லை, நீங்கள் எங்கே இருக்கிறீர்கள்?",
+                    openerL1 = "नमस्ते, मेरा पार्सल अभी तक नहीं आया, आप कहाँ हैं?",
+                    targetWords = listOf("முகவரி", "கட்டிடம்", "வழி"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                isSecurity -> DailyMission(
+                    title = "Gate Pass Verification",
+                    nativeTitle = "நுழைவுச்சீட்டு சரிபார்ப்பு",
+                    npcRole = "பார்வையாளர் (Visitor)",
+                    objective = "A visitor has arrived without a badge. Politely ask for identification.",
+                    objectiveNative = "एक आगंतुक बिना पहचान पत्र के आया है। पहचान पत्र मांगें।",
+                    openerL2 = "நான் மேனேஜரைப் பார்க்க வேண்டும், ஆனால் என் அடையாள அட்டை இல்லை.",
+                    openerL1 = "मुझे मैनेजर से मिलना है, पर मेरा आईडी कार्ड नहीं मिल रहा।",
+                    targetWords = listOf("அடையாளம்", "பதிவு", "விதி"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                else -> DailyMission(
+                    title = "Asking for 30 More Minutes",
+                    nativeTitle = "கூடுதல் நேரம் கேட்டல்",
+                    npcRole = "மேற்பார்வையாளர் (Supervisor)",
+                    objective = "Explain the delay and request 30 more minutes.",
+                    objectiveNative = "सुपरवाइजर से काम के लिए 30 मिनट का और समय मांगें।",
+                    openerL2 = "வேலை ஏன் இன்னும் முடியவில்லை? ஷிப்ட் முடியப்போகிறது.",
+                    openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? शिफ्ट खत्म होने वाली है।",
+                    targetWords = listOf("உதவி", "நேரம்", "வேலை"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+            }
+
+            // Telugu (te)
+            l2.startsWith("te") || l2.contains("telugu") -> when {
+                isDelivery -> DailyMission(
+                    title = "Clarifying Delivery Address",
+                    nativeTitle = "చిరునామా అడగడం",
+                    npcRole = "కస్టమర్ (Customer)",
+                    objective = "Ask the customer for a nearby landmark.",
+                    objectiveNative = "ग्राहक को कॉल करके पास का लैंडमार्क पूछें।",
+                    openerL2 = "హలో, నా డెలివరీ ఇంకా రాలేదు, మీరు ఎక్కడ ఉన్నారు?",
+                    openerL1 = "नमस्ते, मेरी डिलीवरी अभी तक नहीं आई, आप कहाँ हैं?",
+                    targetWords = listOf("చిరునామా", "భవనం", "దారి"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                else -> DailyMission(
+                    title = "Asking for 30 More Minutes",
+                    nativeTitle = "సమయం అడగడం",
+                    npcRole = "సూపర్‌వైజర్ (Supervisor)",
+                    objective = "Explain the delay and request 30 more minutes.",
+                    objectiveNative = "सुपरवाइजर से 30 मिनट का समय मांगें।",
+                    openerL2 = "పని ఇంకా ఎందుకు పూర్తి కాలేదు? షిఫ్ట్ అయిపోవచ్చింది.",
+                    openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? शिफ्ट खत्म होने वाली है।",
+                    targetWords = listOf("సహాయం", "పని", "సమయం"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+            }
+
+            // Kannada (kn)
+            l2.startsWith("kn") || l2.contains("kannada") -> when {
+                isDelivery -> DailyMission(
+                    title = "Clarifying Delivery Address",
+                    nativeTitle = "ವಿಳಾಸ ವಿಚಾರಣೆ",
+                    npcRole = "ಗ್ರಾಹಕ (Customer)",
+                    objective = "Ask customer for landmark because house number is unclear.",
+                    objectiveNative = "ग्राहक से पास का लैंडमार्क पूछें।",
+                    openerL2 = "ನಮಸ್ಕಾರ, ನನ್ನ ಡೆಲಿವರಿ ಇನ್ನೂ ಬಂದಿಲ್ಲ, ನೀವು ಎಲ್ಲಿದ್ದೀರಿ?",
+                    openerL1 = "नमस्ते, मेरी डिलीवरी अभी तक नहीं आई, आप कहाँ हैं?",
+                    targetWords = listOf("ವಿಳಾಸ", "ಕಟ್ಟಡ", "ರಸ್ತೆ"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                else -> DailyMission(
+                    title = "Asking for 30 More Minutes",
+                    nativeTitle = "ಸಮಯ ಕೇಳುವುದು",
+                    npcRole = "ಮೇಲ್ವಿಚಾರಕ (Supervisor)",
+                    objective = "Explain delay and request 30 more minutes.",
+                    objectiveNative = "सुपरवाइजर से 30 मिनट का समय मांगें।",
+                    openerL2 = "ಕೆಲಸ ಇನ್ನೂ ಏಕೆ ಮುಗಿದಿಲ್ಲ? ಶಿಫ್ಟ್ ಮುಗಿಯುತ್ತಾ ಬಂದಿದೆ.",
+                    openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? शिफ्ट खत्म होने वाली है।",
+                    targetWords = listOf("ಸಹಾಯ", "ಕೆಲಸ", "ಸಮಯ"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+            }
+
+            // Bengali (bn)
+            l2.startsWith("bn") || l2.contains("bengali") -> when {
+                isDelivery -> DailyMission(
+                    title = "Clarifying Delivery Address",
+                    nativeTitle = "ঠিকানা জানা",
+                    npcRole = "গ্রাহক (Customer)",
+                    objective = "Call customer to ask for landmark.",
+                    objectiveNative = "গ্রাহকের কাছে ল্যান্ডমার্ক জানতে চান।",
+                    openerL2 = "হ্যালো, আমার ডেলিভারি এখনো আসেনি, আপনি কোথায় আছেন?",
+                    openerL1 = "नमस्ते, मेरी डिलीवरी अभी तक नहीं आई, आप कहाँ हैं?",
+                    targetWords = listOf("ঠিকানা", "বিল্ডিং", "রাস্তা"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                else -> DailyMission(
+                    title = "Asking for 30 More Minutes",
+                    nativeTitle = "সময় চাওয়া",
+                    npcRole = "সুপারভাইজার (Supervisor)",
+                    objective = "Explain delay and request 30 more minutes.",
+                    objectiveNative = "কাজের জন্য ৩০ মিনিট অতিরিক্ত সময় চান।",
+                    openerL2 = "কাজ এখনো শেষ হয়নি কেন? শিফট তো শেষ হতে চলল।",
+                    openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? शिफ्ट खत्म होने वाली है।",
+                    targetWords = listOf("সাহায্য", "কাজ", "সময়"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+            }
+
+            // Gujarati (gu)
+            l2.startsWith("gu") || l2.contains("gujarati") -> when {
+                isDelivery -> DailyMission(
+                    title = "Clarifying Delivery Address",
+                    nativeTitle = "સરનામું પૂછવું",
+                    npcRole = "ગ્રાહક (Customer)",
+                    objective = "Call customer to ask for landmark.",
+                    objectiveNative = "ગ્રાહકને લેન્ડમાર્ક વિશે પૂછો.",
+                    openerL2 = "નમસ્તે, મારી ડિલિવરી હજી આવી નથી, તમે ક્યાં પહોંચ્યા છો?",
+                    openerL1 = "नमस्ते, मेरी डिलीवरी अभी तक नहीं आई, आप कहाँ पहुंचे हैं?",
+                    targetWords = listOf("સરનામું", "મકાન", "રસ્તો"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                else -> DailyMission(
+                    title = "Asking for 30 More Minutes",
+                    nativeTitle = "સમય માંગવો",
+                    npcRole = "સુપરવાઇઝર (Supervisor)",
+                    objective = "Explain delay and request 30 more minutes.",
+                    objectiveNative = "કામ માટે ૩૦ મિનિટનો સમય માંગો.",
+                    openerL2 = "કામ હજી પૂરું કેમ નથી થયું? શિફ્ટ પૂરી થવા આવી છે.",
+                    openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? शिफ्ट खत्म होने वाली है।",
+                    targetWords = listOf("મદદ", "કામ", "સમય"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+            }
+
+            // Malayalam (ml)
+            l2.startsWith("ml") || l2.contains("malayalam") -> when {
+                isDelivery -> DailyMission(
+                    title = "Clarifying Delivery Address",
+                    nativeTitle = "വിലാസം ചോദിക്കൽ",
+                    npcRole = "ഉപഭോക്താവ് (Customer)",
+                    objective = "Ask customer for landmark.",
+                    objectiveNative = "ലാൻഡ്മാർക്ക് ചോദിക്കുക.",
+                    openerL2 = "ഹലോ, എൻ്റെ ഡെലിവറി ഇതുവരെ എത്തിയില്ല, നിങ്ങൾ എവിടെയാണ്?",
+                    openerL1 = "नमस्ते, मेरी डिलीवरी अभी तक नहीं आई, आप कहाँ हैं?",
+                    targetWords = listOf("വിലാസം", "കെട്ടിടം", "വഴി"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                else -> DailyMission(
+                    title = "Asking for 30 More Minutes",
+                    nativeTitle = "സമയം ചോദിക്കൽ",
+                    npcRole = "സൂപ്പർവൈസർ (Supervisor)",
+                    objective = "Explain delay and request 30 more minutes.",
+                    objectiveNative = "കൂടുതൽ സമയം ചോദിക്കുക.",
+                    openerL2 = "ജോലി എന്താണ് ഇതുവരെ തീരാഞ്ഞത്? സമയം കഴിയാറായി.",
+                    openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? समय खत्म होने वाला है।",
+                    targetWords = listOf("സഹായം", "ജോലി", "സമയം"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+            }
+
+            // Odia (or)
+            l2.startsWith("or") || l2.contains("odia") -> when {
+                isDelivery -> DailyMission(
+                    title = "Clarifying Delivery Address",
+                    nativeTitle = "ଠିକଣା ପଚାରିବା",
+                    npcRole = "ଗ୍ରାହକ (Customer)",
+                    objective = "Ask customer for landmark.",
+                    objectiveNative = "ଗ୍ରାହକଙ୍କୁ ଠିକଣା ପଚାରନ୍ତୁ।",
+                    openerL2 = "ନମସ୍କାର, ମୋର ଡେଲିଭରୀ ଏପର୍ଯ୍ୟନ୍ତ ଆସିନାହିଁ, ଆପଣ କେଉଁଠି ଅଛନ୍ତି?",
+                    openerL1 = "नमस्ते, मेरी डिलीवरी अभी तक नहीं आई, आप कहाँ हैं?",
+                    targetWords = listOf("ଠିକଣା", "ବିଲ୍ଡିଂ", "ରାସ୍ତା"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                else -> DailyMission(
+                    title = "Asking for 30 More Minutes",
+                    nativeTitle = "ସମୟ ମାଗିବା",
+                    npcRole = "ସୁପରଭାଇଜର (Supervisor)",
+                    objective = "Explain delay and request 30 more minutes.",
+                    objectiveNative = "କାମ ପାଇଁ ଅଧିକ ସମୟ ମାଗନ୍ତୁ।",
+                    openerL2 = "କାମ ଏପର୍ଯ୍ୟନ୍ତ କାହିଁକି ସରିନାହିଁ? ସମୟ ସରିବାକୁ ବସିଲାଣି।",
+                    openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? समय खत्म होने वाला है।",
+                    targetWords = listOf("ସାହାଯ୍ୟ", "କାମ", "ସମୟ"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+            }
+
+            // Hindi (hi)
+            l2.startsWith("hi") || l2.contains("hindi") -> when {
+                isDelivery -> DailyMission(
+                    title = "Clarifying Customer Address",
+                    nativeTitle = "डिलीवरी का पता पूछना",
+                    npcRole = "ग्राहक (Customer)",
+                    objective = "You cannot locate the flat number. Call the customer and ask for a landmark.",
+                    objectiveNative = "आपको फ्लैट नंबर नहीं मिल रहा। ग्राहक को कॉल करके पास का लैंडमार्क पूछें।",
+                    openerL2 = "नमस्ते, मेरी डिलीवरी अभी तक नहीं आई, आप कहाँ पहुँचे हैं?",
+                    openerL1 = "नमस्ते, मेरी डिलीवरी अभी तक नहीं आई, आप कहाँ पहुँचे हैं?",
+                    targetWords = listOf("पता", "बिल्डिंग", "रास्ता"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                isSecurity -> DailyMission(
+                    title = "Gate Pass Verification",
+                    nativeTitle = "गेट पास सत्यापन",
+                    npcRole = "आगंतुक (Visitor)",
+                    objective = "A visitor has arrived without a badge. Politely ask for identification and register them.",
+                    objectiveNative = "एक आगंतुक बिना पहचान पत्र के आया है। पहचान पत्र मांगें।",
+                    openerL2 = "मुझे मैनेजर से मिलने अंदर जाना है, लेकिन मेरा पहचान पत्र नहीं मिल रहा।",
+                    openerL1 = "मुझे मैनेजर से मिलने अंदर जाना है, लेकिन मेरा पहचान पत्र नहीं मिल रहा।",
+                    targetWords = listOf("पहचान", "रजिस्टर", "नियम"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                else -> DailyMission(
+                    title = "Asking for 30 More Minutes",
+                    nativeTitle = "काम का समय मांगना",
+                    npcRole = "सुपरवाइजर (Site Supervisor)",
+                    objective = "Your supervisor asks why the work isn't finished. Explain politely and request 30 more minutes.",
+                    objectiveNative = "सुपरवाइजर पूछ रहे हैं काम पूरा क्यों नहीं हुआ। स्थिति समझाएं और 30 मिनट का समय मांगें।",
+                    openerL2 = "काम अभी तक पूरा क्यों नहीं हुआ? आज की शिफ्ट खत्म होने वाली है।",
+                    openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? आज की शिफ्ट खत्म होने वाली है।",
+                    targetWords = if (ctx.frequentlyMissedWords.isNotEmpty()) ctx.frequentlyMissedWords.take(3) else listOf("मदद", "परेशानी", "समय"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+            }
+
+            // Default: Marathi (mr)
+            else -> when {
+                isSecurity -> DailyMission(
+                    title = "Gate Pass Verification",
+                    nativeTitle = "गेट पास पडताळणी",
+                    npcRole = "व्हिजिटर (Visitor)",
+                    objective = "A visitor has arrived without a badge. Politely ask for identification and register them.",
+                    objectiveNative = "एक आगंतुक बिना पहचान पत्र के आया है। विनम्रतापूर्वक उनका पहचान पत्र मांगें और एंट्री करें।",
+                    openerL2 = "मला मॅनेजरला भेटायला आत जायचे आहे, पण माझे ओळखपत्र सापडत नाही.",
+                    openerL1 = "मुझे मैनेजर से मिलने अंदर जाना है, लेकिन मेरा पहचान पत्र नहीं मिल रहा।",
+                    targetWords = listOf("ओळखपत्र", "नोंद", "नियम"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                isDelivery -> DailyMission(
+                    title = "Clarifying Customer Address",
+                    nativeTitle = "ग्राहकाचा पत्ता विचारणे",
+                    npcRole = "ग्राहक (Customer)",
+                    objective = "You cannot locate the flat number. Call the customer and ask for a landmark.",
+                    objectiveNative = "आपको फ्लैट नंबर नहीं मिल रहा। ग्राहक को कॉल करके पास का लैंडमार्क पूछें।",
+                    openerL2 = "हॅलो, माझी डिलिव्हरी अजून आली नाही, तुम्ही कुठे थांबला आहात?",
+                    openerL1 = "हेलो, मेरी डिलीवरी अभी तक नहीं आई, आप कहां रुके हैं?",
+                    targetWords = listOf("पत्ता", "इमारत", "दोन मिनिटे"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+                else -> DailyMission(
+                    title = "Asking for 30 More Minutes",
+                    nativeTitle = "कामाची वेळ वाढवून मागणे",
+                    npcRole = "सुपरवायझर (Site Supervisor)",
+                    objective = "Your supervisor asks why the work isn't finished. Explain the issue politely and request 30 more minutes.",
+                    objectiveNative = "सुपरवाइजर पूछ रहे हैं काम पूरा क्यों नहीं हुआ। स्थिति समझाएं और 30 मिनट का समय मांगें।",
+                    openerL2 = "काम अजून पूर्ण का झाले नाही? आजची शिफ्ट संपत आली आहे.",
+                    openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? आज की शिफ्ट खत्म होने वाली है।",
+                    targetWords = if (ctx.frequentlyMissedWords.isNotEmpty()) ctx.frequentlyMissedWords.take(3) else listOf("मदत", "अडचण", "वेळ"),
+                    maxTurns = 4,
+                    source = "fallback",
+                )
+            }
         }
     }
 
@@ -370,19 +692,41 @@ class DeterministicFallback {
                 replyRoman = "hee ghya maajhi paavti",
                 source = "fallback",
             )
-            else -> HeardPhraseAnalysis(
-                heardPhrase = if (phrase.isNotBlank()) phrase else "काम चालू आहे",
-                meaningL1 = "कार्यस्थल पर काम संबंधी निर्देश या बातचीत की जा रही है।",
-                toneIntent = "सूचना / Workplace Instruction",
-                importantWords = listOf(
-                    WordMeaning("काम", "काम / work"),
-                    WordMeaning("समजले", "समझ में आया / understood"),
-                ),
-                suggestedReplyL2 = "हो, समजले. मी लगेच करतो.",
-                replyMeaningL1 = "हाँ, समझ गया। मैं तुरंत करता हूँ।",
-                replyRoman = "ho, samajle. mee lagech karto",
-                source = "fallback",
-            )
+            else -> {
+                val (replyL2, replyL1, replyRoman) = when {
+                    ctx.l2.startsWith("ta", ignoreCase = true) || ctx.l2.contains("tamil", ignoreCase = true) ->
+                        Triple("சரி, புரிந்தது. உடனே செய்கிறேன்.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "sari, purindhadhu. udane seigiren")
+                    ctx.l2.startsWith("te", ignoreCase = true) || ctx.l2.contains("telugu", ignoreCase = true) ->
+                        Triple("సరే, అర్థమైంది. వెంటనే చేస్తాను.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "sare, arthamaindi. ventane chesthanu")
+                    ctx.l2.startsWith("kn", ignoreCase = true) || ctx.l2.contains("kannada", ignoreCase = true) ->
+                        Triple("ಸರಿ, ತಿಳಿಯಿತು. ತಕ್ಷಣ ಮಾಡುತ್ತೇನೆ.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "sari, thiliyithu. thakshana maaduththene")
+                    ctx.l2.startsWith("ml", ignoreCase = true) || ctx.l2.contains("malayalam", ignoreCase = true) ->
+                        Triple("ശരി, മനസ്സിലായി. ഉടൻ ചെയ്യാം.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "shari, manassilaayi. udan cheyyaam")
+                    ctx.l2.startsWith("bn", ignoreCase = true) || ctx.l2.contains("bengali", ignoreCase = true) ->
+                        Triple("ঠিক আছে, বুঝতে পেরেছি। এখনই করছি।", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "theek aache, bujhte perechi. ekhoni korchi")
+                    ctx.l2.startsWith("gu", ignoreCase = true) || ctx.l2.contains("gujarati", ignoreCase = true) ->
+                        Triple("બરાબર, સમજાઈ ગયું. હું હમણાં જ કરું છું.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "barabar, samjai gayu. hu hamna j karu chhu")
+                    ctx.l2.startsWith("or", ignoreCase = true) || ctx.l2.contains("odia", ignoreCase = true) ->
+                        Triple("ଠିକ୍ ଅଛି, ବୁଝିପାରିଲି। ଏବେ କରୁଛି।", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "thik achhi, bujhiparili. ebe karuchhi")
+                    ctx.l2.startsWith("hi", ignoreCase = true) || ctx.l2.contains("hindi", ignoreCase = true) ->
+                        Triple("हाँ, समझ गया। मैं तुरंत करता हूँ।", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "haan, samajh gaya. main turant karta hoon")
+                    else ->
+                        Triple("हो, समजले. मी लगेच करतो.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "ho, samajle. mee lagech karto")
+                }
+                HeardPhraseAnalysis(
+                    heardPhrase = if (phrase.isNotBlank()) phrase else "कामाची सूचना",
+                    meaningL1 = "कार्यस्थल पर काम संबंधी निर्देश या बातचीत की जा रही है।",
+                    toneIntent = "सूचना / Workplace Instruction",
+                    importantWords = listOf(
+                        WordMeaning("काम", "काम / work"),
+                        WordMeaning("निर्देश", "निर्देश / instruction"),
+                    ),
+                    suggestedReplyL2 = replyL2,
+                    replyMeaningL1 = replyL1,
+                    replyRoman = replyRoman,
+                    source = "fallback",
+                )
+            }
         }
     }
 
