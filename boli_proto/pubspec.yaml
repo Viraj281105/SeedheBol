@@ -45,6 +45,11 @@ dependencies:
   boli_dialogue_engine:
     path: ../packages/dialogue_engine
 
+  # Camera access — CameraX under the hood on Android.
+  # No network; offline by design (same constraint as the rest of the stack).
+  camera: ^0.11.0
+  image: ^4.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

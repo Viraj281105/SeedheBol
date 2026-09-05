@@ -52,6 +52,11 @@ abstract class IBoliBridge {
   // Camera OCR Lesson Generation
   Future<List<String>> extractTextFromImage(Uint8List imageBytes);
 
+  // Gemma-powered AI methods (with deterministic fallback)
+  Future<Map<String, dynamic>> generateLessonFromOcr(String ocrText, {String? topicHint});
+  Future<Map<String, dynamic>> translateText(String text);
+  Future<bool> isGemmaAvailable();
+
   // Telemetry & Hardware Info
   Future<Map<String, dynamic>> getHardwareTelemetry();
 }
@@ -241,6 +246,33 @@ class BoliBridge implements IBoliBridge {
       {'image_bytes': imageBytes},
     );
     return result ?? const [];
+  }
+
+  @override
+  Future<Map<String, dynamic>> generateLessonFromOcr(
+    String ocrText, {
+    String? topicHint,
+  }) async {
+    final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+      'generateLessonFromOcr',
+      {'ocr_text': ocrText, 'topic_hint': topicHint},
+    );
+    return result ?? const {};
+  }
+
+  @override
+  Future<Map<String, dynamic>> translateText(String text) async {
+    final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+      'translateText',
+      {'text': text},
+    );
+    return result ?? const {};
+  }
+
+  @override
+  Future<bool> isGemmaAvailable() async {
+    final result = await _methodChannel.invokeMethod<bool>('isGemmaAvailable');
+    return result ?? false;
   }
 
   @override

@@ -1,7 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- T4 only. Requested at runtime from Kotlin; no permission_handler plugin
-         for a single permission (CLAUDE.md T4.1). -->
+    <!-- RECORD_AUDIO: IndicConformer ASR via MicRecorder. Runtime-requested. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- CAMERA: ML Kit OCR camera lens screen. Runtime-requested. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="boli_proto"
         android:name="${applicationName}"

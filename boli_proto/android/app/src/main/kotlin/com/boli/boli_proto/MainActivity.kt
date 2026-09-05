@@ -12,7 +12,17 @@ import kotlin.concurrent.thread
 
 /**
  * The whole Dart<->Kotlin surface: one channel, methods returning String.
- * Flutter owns the UI; Kotlin owns audio and inference (CLAUDE.md 3.5).
+ * Flutter owns the UI; Kotlin owns audio and inference.
+ *
+ * Channel: 'boli/asr'
+ *   Methods: transcribeAsset | transcribeMic | speak
+ *
+ * The broader engine surface (OCR, Gemma, roleplay) lives on 'boli/engine_methods'
+ * handled by BoliBridgePlugin, which is registered via flutterEngine.plugins.add().
+ *
+ * PERMISSIONS requested here:
+ *   RECORD_AUDIO — microphone for IndicConformer ASR
+ *   CAMERA       — CameraX for ML Kit OCR lens screen
  */
 class MainActivity : FlutterActivity() {
 
@@ -25,6 +35,8 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // BoliBridgePlugin registers 'boli/engine_methods' + event channels.
+        // It also owns GemmaEngine warm-up — no duplication needed here.
         flutterEngine.plugins.add(com.boli.boli_proto.bridge.BoliBridgePlugin())
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
@@ -39,19 +51,17 @@ class MainActivity : FlutterActivity() {
 
                     // T4 — live microphone.
                     "transcribeMic" -> {
-                        if (!hasMicPermission()) {
-                            requestMicPermission()
+                        if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                            requestPermission(Manifest.permission.RECORD_AUDIO, REQ_MIC)
                             result.error("NO_PERMISSION", "Microphone permission requested — tap again", null)
                         } else {
-                            // Speaking exercises set their own window; still one
-                            // method, still returning String.
                             val seconds = (call.argument<Double>("seconds") ?: 4.0).toFloat()
                             off(result) { asr.transcribe(MicRecorder.record(seconds)) }
                         }
                     }
 
                     // Plays the target phrase. Speaking exercises call this
-                    // before asking the user to repeat -- nobody can pronounce
+                    // before asking the user to repeat — nobody can pronounce
                     // a word they have never heard.
                     "speak" -> {
                         val text = call.argument<String>("text").orEmpty()
@@ -66,14 +76,16 @@ class MainActivity : FlutterActivity() {
         // so the first button press measures inference, not cold start.
         thread { runCatching { asr.warmUp() }.onFailure { Log.e(TAG, "warmUp failed", it) } }
         thread { runCatching { tts.warmUp() }.onFailure { Log.e(TAG, "tts warmUp failed", it) } }
+        // GemmaEngine warm-up is triggered in BoliBridgePlugin.onAttachedToEngine.
     }
 
-    private fun hasMicPermission() =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED
+    // ---- permission helpers (generalised to handle CAMERA too) ---------------
 
-    private fun requestMicPermission() =
-        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+    private fun hasPermission(perm: String) =
+        ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestPermission(perm: String, requestCode: Int) =
+        ActivityCompat.requestPermissions(this, arrayOf(perm), requestCode)
 
     /** Inference is far too slow for the platform thread; hop off and post back. */
     private fun off(result: MethodChannel.Result, work: () -> String) {
@@ -83,8 +95,8 @@ class MainActivity : FlutterActivity() {
                 outcome
                     .onSuccess { result.success(it) }
                     .onFailure {
-                        Log.e(TAG, "transcribe failed", it)
-                        result.error("ASR_FAILED", it.message ?: it.toString(), null)
+                        Log.e(TAG, "inference failed", it)
+                        result.error("INFER_FAILED", it.message ?: it.toString(), null)
                     }
             }
         }
@@ -92,6 +104,8 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "boli/asr"
-        private const val TAG = "BoliAsr"
+        private const val TAG = "BoliMain"
+        private const val REQ_MIC = 1
+        private const val REQ_CAMERA = 2
     }
 }

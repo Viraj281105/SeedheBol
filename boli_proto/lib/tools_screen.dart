@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'camera_lesson_screen.dart';
 import 'data.dart';
+import 'roleplay_screen.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -105,12 +107,31 @@ class _ToolCard extends StatelessWidget {
       child: Transform.translate(offset: Offset(0, (1 - v) * 18), child: child),
     ),
     child: GestureDetector(
-      onTap: () => showModalBottomSheet(
-        context: context,
-        backgroundColor: Colors.transparent,
-        isScrollControlled: true,
-        builder: (_) => _ToolSheet(tool: tool),
-      ),
+      onTap: () {
+        if (index == 0) {
+          // Camera → OCR → Gemma → MicroLesson
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const CameraLessonScreen()),
+          );
+        } else if (index == 2) {
+          // Roleplay conversation — Gemma-powered
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const RoleplayScreen(
+                scenario: 'Talking to a supervisor',
+                scenarioNative: 'संवाद — सुपरवायझरशी',
+              ),
+            ),
+          );
+        } else {
+          showModalBottomSheet(
+            context: context,
+            backgroundColor: Colors.transparent,
+            isScrollControlled: true,
+            builder: (_) => _ToolSheet(tool: tool),
+          );
+        }
+      },
       child: Container(
         padding: const EdgeInsets.all(15),
         decoration: Boli.card(),
