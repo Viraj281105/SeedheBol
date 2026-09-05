@@ -32,7 +32,13 @@ for L in "${LANGS[@]}"; do
 
   if [ ! -d "$DIR/$L" ]; then
     echo "  downloading ${L}.zip …"
-    curl -L --retry 3 --retry-delay 2 --continue-at - "$BASE/${L}.zip" -o "$DIR/${L}.zip" || { echo "  DOWNLOAD FAILED"; continue; }
+    while true; do
+      if curl -L --retry 10 --retry-delay 3 --retry-all-errors --continue-at - "$BASE/${L}.zip" -o "$DIR/${L}.zip"; then
+        break
+      fi
+      echo "  download interrupted, retrying in 5s…"
+      sleep 5
+    done
     SZ=$(stat -c%s "$DIR/${L}.zip" 2>/dev/null || echo 0)
     if [ "$SZ" -lt 100000000 ]; then
       echo "  DOWNLOAD TOO SMALL ($SZ bytes) — skipping"
