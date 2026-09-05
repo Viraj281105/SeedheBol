@@ -202,7 +202,7 @@ class OnnxTts(private val context: Context) {
     }
 
     companion object {
-        private const val TAG = "BoliTts"
+        private const val TAG = "SeedheBolTts"
         private const val MODEL = "piper_mr.onnx"
         private const val TABLE = "tts_phonemes.json"
         private const val SAMPLE_RATE = 22050 // Piper's native rate. NOT the ASR's 16000.

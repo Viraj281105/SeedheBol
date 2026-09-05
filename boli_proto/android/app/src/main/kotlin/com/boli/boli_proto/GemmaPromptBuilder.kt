@@ -144,33 +144,104 @@ object GemmaPromptBuilder {
     // Roleplay — next conversational turn
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Roleplay — semantic understanding, natural response, and coaching feedback
+    // -------------------------------------------------------------------------
+
     /**
-     * Generates the bot's next turn in a conversation.
+     * Generates Gemma's next conversational turn in a scenario.
      *
-     * Expected output format:
-     *   L2: <next bot sentence in target language>
-     *   L1: <same sentence translated to L1 for comprehension>
-     *   HINT: <optional pronunciation tip, or omit>
+     * Instructs the model to:
+     *   1. Understand user intent semantically (tolerate broken grammar or slang).
+     *   2. Respond naturally in persona (supervisor, shopkeeper, guard, coworker).
+     *   3. Suggest a more natural/polite phrasing for the learner ("Better Way").
+     *   4. Provide native L1 comprehension and articulation tips.
      */
     fun buildRoleplayNextTurnPrompt(
         history: List<DialogueTurn>,
         ctx: GemmaContext,
     ): String {
+        val persona = ctx.scenario ?: "workplace supervisor"
         val userPrompt = buildString {
             appendLine(systemHeader(ctx))
             appendLine()
-            appendLine("TASK: Continue this conversation. You play a ${ctx.scenario ?: "colleague"} speaking ${ctx.l2}.")
+            appendLine("ROLE: You play a $persona speaking in ${ctx.l2}.")
+            appendLine("TASK: Continue the conversation with the learner.")
+            appendLine("Understand the learner's intent semantically even if their ${ctx.l2} grammar is rough or mixed with ${ctx.l1}.")
+            appendLine("Keep sentences practical, polite, and spoken as in a real Indian workplace.")
             appendLine()
-            appendLine("Conversation so far:")
-            for (turn in history.takeLast(6)) { // Last 6 turns to stay within token budget
-                val speaker = if (turn.speaker == "user") "Learner" else "You"
+            appendLine("Conversation history:")
+            for (turn in history.takeLast(6)) {
+                val speaker = if (turn.speaker == "user") "Learner" else "You ($persona)"
                 appendLine("$speaker: ${turn.text}")
             }
             appendLine()
-            appendLine("Output exactly:")
-            appendLine("L2: <your next sentence in ${ctx.l2}, simple, 1-2 sentences>")
-            appendLine("L1: <same sentence in ${ctx.l1}>")
-            appendLine("HINT: <one pronunciation tip, or write HINT: none>")
+            appendLine("Output strictly in this format:")
+            appendLine("L2: <your natural response in ${ctx.l2}, 1-2 sentences>")
+            appendLine("L1: <meaning of your response in ${ctx.l1}>")
+            appendLine("BETTER: <a natural, polite way the learner could have said their last turn in ${ctx.l2}>")
+            appendLine("FEEDBACK: <1 short sentence in ${ctx.l1} acknowledging what the learner communicated>")
+            appendLine("HINT: <one pronunciation or articulation tip, or write HINT: none>")
+        }
+        return wrapTurn(userPrompt)
+    }
+
+    // -------------------------------------------------------------------------
+    // Dynamic Workplace Practice Drills
+    // -------------------------------------------------------------------------
+
+    /**
+     * Generates dynamic workplace exercises for any situation on the fly.
+     */
+    fun buildPracticeDrillsPrompt(
+        situation: String,
+        domain: String,
+        ctx: GemmaContext,
+    ): String {
+        val userPrompt = buildString {
+            appendLine(systemHeader(ctx))
+            appendLine()
+            appendLine("TASK: Generate 3 short practice drills for a ${ctx.occupation} worker in $domain.")
+            appendLine("Situation: \"$situation\"")
+            appendLine("Format strictly as follows (no markdown bolding):")
+            appendLine("D1_PROMPT: <Instruction in ${ctx.l1}, e.g. Say this to your supervisor>")
+            appendLine("D1_TARGET: <Sentence in ${ctx.l2}>")
+            appendLine("D1_ROMAN: <Romanized pronunciation>")
+            appendLine("D1_TRANS: <Meaning in ${ctx.l1}>")
+            appendLine("D2_PROMPT: <Comprehension question in ${ctx.l1}>")
+            appendLine("D2_CORRECT: <Correct answer in ${ctx.l2}>")
+            appendLine("D2_OPT2: <Incorrect option in ${ctx.l2}>")
+            appendLine("D2_OPT3: <Incorrect option in ${ctx.l2}>")
+            appendLine("D3_PROMPT: <Instruction in ${ctx.l1}>")
+            appendLine("D3_TARGET: <Essential workplace response in ${ctx.l2}>")
+            appendLine("D3_ROMAN: <Romanized pronunciation>")
+            appendLine("D3_TRANS: <Meaning in ${ctx.l1}>")
+        }
+        return wrapTurn(userPrompt)
+    }
+
+    // -------------------------------------------------------------------------
+    // "With Someone" Peer Facilitator / Coach
+    // -------------------------------------------------------------------------
+
+    /**
+     * Acts as an AI Language Facilitator when two people practice together.
+     */
+    fun buildPeerCoachPrompt(
+        spokenText: String,
+        speakerRole: String,
+        ctx: GemmaContext,
+    ): String {
+        val userPrompt = buildString {
+            appendLine(systemHeader(ctx))
+            appendLine()
+            appendLine("TASK: Act as an offline language facilitator for 2 people practicing face-to-face.")
+            appendLine("Speaker ($speakerRole) said: \"$spokenText\"")
+            appendLine("Output strictly in this format:")
+            appendLine("TRANS: <direct translation in the other speaker's language>")
+            appendLine("BETTER: <more natural/colloquial phrasing in target language>")
+            appendLine("TIP: <1 short conversation coaching tip in ${ctx.l1}>")
+            appendLine("NEXT: <suggested reply or follow-up question to keep conversation going>")
         }
         return wrapTurn(userPrompt)
     }

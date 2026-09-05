@@ -3,10 +3,10 @@ package com.boli.boli_proto
 import android.util.Log
 
 /**
- * BoliAiLayer — the clean abstraction between all Boli business logic and AI.
+ * SeedheBolAiLayer — the clean abstraction between all SeedheBol business logic and AI.
  *
  * This is the ONLY class that knows whether Gemma is available. Everything else
- * calls BoliAiLayer and receives a typed [AiResponse]; the [AiSource] field tells
+ * calls SeedheBolAiLayer and receives a typed [AiResponse]; the [AiSource] field tells
  * callers (and the UI) which backend produced the answer.
  *
  * Contract:
@@ -293,6 +293,8 @@ class BoliAiLayer(
                     "pronunciation_score" to null,
                     "weak_phonemes" to emptyList<String>(),
                     "articulatory_hint" to turn.hint,
+                    "natural_phrasing" to turn.betterWay,
+                    "intent_explanation" to turn.feedback,
                     "ai_source" to "gemma",
                     "latency_ms" to ms,
                 )
@@ -300,6 +302,65 @@ class BoliAiLayer(
         }
         // Fallback: preserve original stub response
         return deterministic.nextRoleplayTurn(historyWithUser, situationId, currentNodeId, ctx)
+    }
+
+    // -------------------------------------------------------------------------
+    // Dynamic Workplace Practice Drills
+    // -------------------------------------------------------------------------
+
+    suspend fun generateDynamicExercises(
+        situation: String,
+        domain: String,
+        ctx: GemmaContext,
+    ): AiResponse<List<DynamicExercise>> {
+        val t0 = System.currentTimeMillis()
+        if (gemma.isAvailable) {
+            val prompt = GemmaPromptBuilder.buildPracticeDrillsPrompt(situation, domain, ctx)
+            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            if (!raw.isNullOrBlank()) {
+                val exercises = parseDynamicExercises(raw)
+                if (exercises.isNotEmpty()) {
+                    return AiResponse(exercises, AiSource.GEMMA, System.currentTimeMillis() - t0)
+                }
+            }
+        }
+        val fallback = deterministic.generateDynamicExercises(situation, domain, ctx)
+        return AiResponse(fallback, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
+    }
+
+    // -------------------------------------------------------------------------
+    // "With Someone" Peer Practice Facilitation
+    // -------------------------------------------------------------------------
+
+    suspend fun coachPeerTurn(
+        spokenText: String,
+        speakerRole: String,
+        ctx: GemmaContext,
+    ): AiResponse<PeerTurnCoachResult> {
+        val t0 = System.currentTimeMillis()
+        if (gemma.isAvailable && spokenText.isNotBlank()) {
+            val prompt = GemmaPromptBuilder.buildPeerCoachPrompt(spokenText, speakerRole, ctx)
+            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            if (!raw.isNullOrBlank()) {
+                val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+                val trans = findTagValue(lines, "TRANS|TRANSLATION") ?: ""
+                val better = findTagValue(lines, "BETTER|NATURAL") ?: ""
+                val tip = findTagValue(lines, "TIP|COACH") ?: ""
+                val next = findTagValue(lines, "NEXT|QUESTION") ?: ""
+                val result = PeerTurnCoachResult(
+                    speakerRole = speakerRole,
+                    spokenText = spokenText,
+                    translation = trans.ifBlank { spokenText },
+                    betterWay = better,
+                    coachTip = tip,
+                    nextPromptSuggestion = next,
+                    source = "gemma",
+                )
+                return AiResponse(result, AiSource.GEMMA, System.currentTimeMillis() - t0)
+            }
+        }
+        val fallback = deterministic.coachPeerTurn(spokenText, speakerRole, ctx)
+        return AiResponse(fallback, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
     }
 
     // -------------------------------------------------------------------------
@@ -408,21 +469,93 @@ class BoliAiLayer(
 
     /**
      * Parses roleplay response:
-     *   L2: <text>
-     *   L1: <text>
-     *   HINT: <text or "none">
+     *   L2: <reply>
+     *   L1: <translation>
+     *   BETTER: <better phrasing for learner>
+     *   FEEDBACK: <feedback on learner's utterance>
+     *   HINT: <pronunciation tip or "none">
      */
     private fun parseRoleplayResponse(raw: String): DialogueTurn {
         val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
         val l2Text = findTagValue(lines, "L2|REPLY|RESPONSE") ?: cleanLine(raw.lines().firstOrNull() ?: "").take(100)
         val l1Text = findTagValue(lines, "L1|TRANSLATION") ?: ""
+        val betterWay = findTagValue(lines, "BETTER|NATURAL|POLISH") ?: ""
+        val feedback = findTagValue(lines, "FEEDBACK|DIAGNOSTIC|NOTE") ?: ""
         val hintRaw = findTagValue(lines, "HINT|TIP|PRONUNCIATION") ?: ""
         val hint = if (hintRaw.equals("none", ignoreCase = true)) "" else hintRaw
 
-        return DialogueTurn(speaker = "bot", text = l2Text, l1Text = l1Text, hint = hint)
+        return DialogueTurn(
+            speaker = "bot",
+            text = l2Text,
+            l1Text = l1Text,
+            hint = hint,
+            betterWay = betterWay,
+            feedback = feedback,
+        )
+    }
+
+    /**
+     * Parses dynamic exercise drills generated by Gemma.
+     */
+    private fun parseDynamicExercises(raw: String): List<DynamicExercise> {
+        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val list = mutableListOf<DynamicExercise>()
+
+        // Drill 1 (Speaking)
+        val d1Prompt = findTagValue(lines, "D1_PROMPT") ?: "वाक्य स्पष्टपणे बोला (Speak clearly)"
+        val d1Target = findTagValue(lines, "D1_TARGET")
+        val d1Roman = findTagValue(lines, "D1_ROMAN") ?: ""
+        val d1Trans = findTagValue(lines, "D1_TRANS") ?: ""
+        if (!d1Target.isNullOrBlank()) {
+            list.add(DynamicExercise(
+                kind = "speak",
+                prompt = d1Prompt,
+                targetText = d1Target,
+                roman = d1Roman,
+                translation = d1Trans,
+            ))
+        }
+
+        // Drill 2 (Choice)
+        val d2Prompt = findTagValue(lines, "D2_PROMPT") ?: "योग्य पर्याय निवडा (Choose correct option)"
+        val d2Correct = findTagValue(lines, "D2_CORRECT")
+        val d2Opt2 = findTagValue(lines, "D2_OPT2") ?: "मला माहित नाही"
+        val d2Opt3 = findTagValue(lines, "D2_OPT3") ?: "उद्या पाहू"
+        if (!d2Correct.isNullOrBlank()) {
+            val options = listOf(d2Correct, d2Opt2, d2Opt3).shuffled()
+            val correctIdx = options.indexOf(d2Correct)
+            list.add(DynamicExercise(
+                kind = "choice",
+                prompt = d2Prompt,
+                targetText = d2Correct,
+                options = options,
+                answerIndex = correctIdx,
+            ))
+        }
+
+        // Drill 3 (Speaking)
+        val d3Prompt = findTagValue(lines, "D3_PROMPT") ?: "कामाच्या ठिकाणी हे सांगा"
+        val d3Target = findTagValue(lines, "D3_TARGET")
+        val d3Roman = findTagValue(lines, "D3_ROMAN") ?: ""
+        val d3Trans = findTagValue(lines, "D3_TRANS") ?: ""
+        if (!d3Target.isNullOrBlank()) {
+            list.add(DynamicExercise(
+                kind = "speak",
+                prompt = d3Prompt,
+                targetText = d3Target,
+                roman = d3Roman,
+                translation = d3Trans,
+            ))
+        }
+
+        return list
     }
 
     companion object {
-        private const val TAG = "BoliAiLayer"
+        private const val TAG = "SeedheBolAi"
     }
 }
+
+/** Official SeedheBol AI layer alias. */
+typealias SeedheBolAiLayer = BoliAiLayer
+

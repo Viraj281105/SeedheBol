@@ -18,10 +18,10 @@ import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.*
 
 /**
- * BoliBridgePlugin
+ * SeedheBolBridgePlugin
  *
  * Native Android plugin connecting Flutter presentation layer to the on-device
- * AI stack: Gemma 3n E2B (via BoliAiLayer), ML Kit OCR (MlKitOcr),
+ * AI stack: Gemma 3n E2B (via SeedheBolAiLayer), ML Kit OCR (MlKitOcr),
  * and deterministic fallbacks (DeterministicFallback).
  *
  * IndicConformer ASR and FastPitch TTS are wired through MainActivity's
@@ -153,6 +153,8 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             "generateLessonFromOcr"  -> handleGenerateLessonFromOcr(call, result)
             "translateText"          -> handleTranslateText(call, result)
             "getExplanation"         -> handleGetExplanation(call, result)
+            "generatePracticeDrills" -> handleGeneratePracticeDrills(call, result)
+            "coachPeerTurn"          -> handleCoachPeerTurn(call, result)
             "isGemmaAvailable"       -> result.success(gemmaEngine.isAvailable)
             "getHardwareTelemetry"   -> handleGetHardwareTelemetry(result)
             else                     -> result.notImplemented()
@@ -363,6 +365,54 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         }
     }
 
+    private fun handleGeneratePracticeDrills(call: MethodCall, result: Result) {
+        val situation = call.argument<String>("situation") ?: "General Work"
+        val domain = call.argument<String>("domain") ?: sessionCtx.occupation
+        pluginScope.launch {
+            val ctx = sessionCtx.copy(scenario = situation, occupation = domain)
+            val response = aiLayer.generateDynamicExercises(situation, domain, ctx)
+            val mapped = response.value.map { ex ->
+                mapOf(
+                    "kind" to ex.kind,
+                    "prompt" to ex.prompt,
+                    "target_text" to ex.targetText,
+                    "roman" to ex.roman,
+                    "translation" to ex.translation,
+                    "options" to ex.options,
+                    "answer_index" to ex.answerIndex,
+                )
+            }
+            withContext(Dispatchers.Main) {
+                result.success(mapOf(
+                    "exercises" to mapped,
+                    "source" to response.source.name.lowercase(),
+                    "latency_ms" to response.latencyMs,
+                ))
+            }
+        }
+    }
+
+    private fun handleCoachPeerTurn(call: MethodCall, result: Result) {
+        val spokenText = call.argument<String>("spoken_text") ?: ""
+        val speakerRole = call.argument<String>("speaker_role") ?: "Learner"
+        pluginScope.launch {
+            val response = aiLayer.coachPeerTurn(spokenText, speakerRole, sessionCtx)
+            val coach = response.value
+            withContext(Dispatchers.Main) {
+                result.success(mapOf(
+                    "speaker_role" to coach.speakerRole,
+                    "spoken_text" to coach.spokenText,
+                    "translation" to coach.translation,
+                    "better_way" to coach.betterWay,
+                    "coach_tip" to coach.coachTip,
+                    "next_prompt" to coach.nextPromptSuggestion,
+                    "source" to response.source.name.lowercase(),
+                    "latency_ms" to response.latencyMs,
+                ))
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Telemetry — updated to reflect actual hardware + Gemma status
     // -------------------------------------------------------------------------
@@ -379,4 +429,10 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         )
         result.success(telemetry)
     }
+
+    private val TAG = "SeedheBolBridge"
 }
+
+/** Official SeedheBol bridge plugin alias. */
+typealias SeedheBolBridgePlugin = BoliBridgePlugin
+

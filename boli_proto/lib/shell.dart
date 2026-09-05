@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'data.dart';
 import 'practice_screen.dart';
 import 'progress_screen.dart';
@@ -207,11 +208,16 @@ class _TodayScreenState extends State<TodayScreen> {
             const SizedBox(height: 16),
             Text(
               '${s.phrases} phrases are written for this situation. '
-              'The Marathi pack on this phone covers four situations end to end; '
-              'the rest ship with the full content build.',
+              'Gemma on-device AI can generate personalized workplace drills right now.',
               style: Boli.body(15, color: Boli.inkSoft),
             ),
             const SizedBox(height: 20),
+            BigButton(
+              label: 'Gemma सराव सुरू करा · Start AI Drills',
+              color: Boli.terracotta,
+              onTap: () => _generateAndStartDrills(s),
+            ),
+            const SizedBox(height: 10),
             BigButton(
               label: 'Close',
               outline: true,
@@ -222,6 +228,88 @@ class _TodayScreenState extends State<TodayScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _generateAndStartDrills(Situation s) async {
+    Navigator.of(context).pop(); // Close sheet
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Center(
+        child: Container(
+          margin: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Boli.paper,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: Boli.lift(y: 4, blur: 16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 32,
+                height: 32,
+                child: CircularProgressIndicator(color: Boli.marigold, strokeWidth: 3),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Gemma सराव तयार करत आहे…',
+                style: Boli.head(17, weight: 700),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Generating dynamic drills for ${widget.job.title}…',
+                style: Boli.body(13, color: Boli.inkSoft),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final res = await const MethodChannel('boli/engine_methods').invokeMapMethod<String, dynamic>(
+        'generatePracticeDrills',
+        {'situation': s.title, 'domain': widget.job.title},
+      );
+
+      if (mounted) Navigator.of(context, rootNavigator: true).pop(); // dismiss loading
+
+      final rawList = res?['exercises'] as List<dynamic>? ?? [];
+      final generated = <Exercise>[];
+
+      for (final item in rawList) {
+        if (item is Map) {
+          final kindStr = item['kind'] as String? ?? 'speak';
+          final kind = kindStr == 'choice' ? Kind.choice : Kind.speak;
+          final prompt = item['prompt'] as String? ?? '';
+          final target = item['target_text'] as String? ?? '';
+          final roman = item['roman'] as String? ?? '';
+          final trans = item['translation'] as String? ?? '';
+          final options = (item['options'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+          final answer = item['answer_index'] as int? ?? 0;
+
+          generated.add(Exercise(
+            kind: kind,
+            prompt: prompt,
+            marathi: target,
+            roman: roman,
+            english: trans,
+            options: options,
+            answer: answer,
+          ));
+        }
+      }
+
+      if (generated.isNotEmpty && mounted) {
+        final dynamicSit = s.copyWith(exercises: generated);
+        _open(dynamicSit);
+      }
+    } catch (_) {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
   }
 
   @override

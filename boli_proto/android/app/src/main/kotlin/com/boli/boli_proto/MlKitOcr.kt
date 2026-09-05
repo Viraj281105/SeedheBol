@@ -151,6 +151,6 @@ class MlKitOcr {
     }
 
     companion object {
-        private const val TAG = "BoliOcr"
+        private const val TAG = "SeedheBolOcr"
     }
 }

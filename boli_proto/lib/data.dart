@@ -129,6 +129,24 @@ class Situation {
     this.urgent = false,
     this.exercises = const [],
   });
+
+  Situation copyWith({
+    String? title,
+    String? native,
+    Ctx? ctx,
+    int? phrases,
+    double? readiness,
+    bool? urgent,
+    List<Exercise>? exercises,
+  }) => Situation(
+    title: title ?? this.title,
+    native: native ?? this.native,
+    ctx: ctx ?? this.ctx,
+    phrases: phrases ?? this.phrases,
+    readiness: readiness ?? this.readiness,
+    urgent: urgent ?? this.urgent,
+    exercises: exercises ?? this.exercises,
+  );
 }
 
 final situations = <Situation>[

@@ -1,11 +1,10 @@
-# BOLI — Project Document
+# SeedheBol — Project Document
 
 **Functional Indian languages, offline, for people who move for work.**
 
 An on-device, voice-first language learning application for Indian regional languages.
 Built for the iQOO Hackathon 2026 · City Battles, Pune leg (5–6 September 2026).
 
-*Working title. Alternatives: Vaani, Pehla Din, Setu.*
 
 ---
 

@@ -246,7 +246,7 @@ class GemmaEngine(private val context: Context) {
     }
 
     companion object {
-        private const val TAG = "BoliGemma"
+        private const val TAG = "SeedheBolGemma"
         val CANDIDATE_FILENAMES = listOf(
             "gemma-2b-it-cpu-int4.bin",
             "gemma-2b-it-cpu-int4.task",

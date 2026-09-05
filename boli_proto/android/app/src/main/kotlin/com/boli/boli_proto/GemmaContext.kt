@@ -75,14 +75,45 @@ data class MicroLesson(
 /**
  * A single turn in a roleplay conversation.
  *
- * [speaker]  — "user" | "bot"
- * [text]     — text in L2 (bot) or as spoken by user (user)
- * [l1Text]   — translation in L1 (for comprehension aid; bot only)
- * [hint]     — articulation / pronunciation hint (optional)
+ * [speaker]    — "user" | "bot"
+ * [text]       — text in L2 (bot) or as spoken by user (user)
+ * [l1Text]     — translation in L1 (for comprehension aid; bot only)
+ * [hint]       — articulation / pronunciation hint (optional)
+ * [betterWay]  — suggested natural/polite phrasing in L2 for the learner
+ * [feedback]   — brief semantic/grammar diagnostic in L1
  */
 data class DialogueTurn(
     val speaker: String,
     val text: String,
     val l1Text: String = "",
     val hint: String = "",
+    val betterWay: String = "",
+    val feedback: String = "",
 )
+
+/**
+ * A dynamically generated workplace practice exercise produced by Gemma.
+ */
+data class DynamicExercise(
+    val kind: String, // "speak", "choice"
+    val prompt: String,
+    val targetText: String,
+    val roman: String = "",
+    val translation: String = "",
+    val options: List<String> = emptyList(),
+    val answerIndex: Int = 0,
+)
+
+/**
+ * Facilitation output for the "With Someone" two-person peer practice tool.
+ */
+data class PeerTurnCoachResult(
+    val speakerRole: String,
+    val spokenText: String,
+    val translation: String,
+    val betterWay: String = "",
+    val coachTip: String = "",
+    val nextPromptSuggestion: String = "",
+    val source: String = "gemma",
+)
+

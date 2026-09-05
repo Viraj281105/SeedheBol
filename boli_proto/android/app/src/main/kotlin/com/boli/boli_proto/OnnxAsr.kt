@@ -137,7 +137,7 @@ class OnnxAsr(private val context: Context) {
     }
 
     companion object {
-        private const val TAG = "BoliAsr"
+        private const val TAG = "SeedheBolAsr"
         private const val SUBSAMPLING = 4L // models/mr/config.json
 
         /**

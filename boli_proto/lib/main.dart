@@ -11,20 +11,22 @@ void main() {
       statusBarIconBrightness: Brightness.dark,
     ),
   );
-  runApp(const BoliApp());
+  runApp(const SeedheBolApp());
 }
 
-class BoliApp extends StatelessWidget {
-  const BoliApp({super.key});
+class SeedheBolApp extends StatelessWidget {
+  const SeedheBolApp({super.key});
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'Boli',
+    title: 'SeedheBol',
     debugShowCheckedModeBanner: false,
     theme: Boli.theme,
     home: const Splash(),
   );
 }
+
+typedef BoliApp = SeedheBolApp;
 
 /// Short open. It also covers the ~1.5s Kotlin spends building both ONNX
 /// sessions, so the first speaking exercise never pays for a cold start.
@@ -98,8 +100,8 @@ class _SplashState extends State<Splash> with SingleTickerProviderStateMixin {
             FadeTransition(
               opacity: word,
               child: Text(
-                'बोली',
-                style: Boli.head(58, weight: 800, color: Boli.cream),
+                'सीधेबोल',
+                style: Boli.head(52, weight: 800, color: Boli.cream),
               ),
             ),
             const SizedBox(height: 6),
@@ -108,7 +110,7 @@ class _SplashState extends State<Splash> with SingleTickerProviderStateMixin {
               child: Column(
                 children: [
                   Text(
-                    'Language for work',
+                    'कामकाजी भाषा · SeedheBol',
                     style: Boli.body(
                       16,
                       color: Boli.cream.withValues(alpha: .72),

@@ -237,7 +237,7 @@ class FastPitchTts(private val context: Context) {
     }
 
     companion object {
-        private const val TAG = "BoliTts"
+        private const val TAG = "SeedheBolTts"
         private const val FASTPITCH_MODEL = "fastpitch.onnx"
         private const val HIFIGAN_MODEL = "hifigan.onnx"
         private const val TOKENS = "tts_tokens.json"

@@ -1,5 +1,5 @@
 // lib/bridge/boli_bridge.dart
-// Unified Dart API interface wrapping all Platform Channels for the Boli Engine.
+// Unified Dart API interface wrapping all Platform Channels for the SeedheBol Engine.
 
 import 'dart:async';
 import 'package:flutter/services.dart';
@@ -283,3 +283,8 @@ class BoliBridge implements IBoliBridge {
     return result ?? const {};
   }
 }
+
+/// Official SeedheBol Bridge aliases for backwards and forwards compatibility.
+typedef SeedheBolBridge = BoliBridge;
+typedef ISeedheBolBridge = IBoliBridge;
+

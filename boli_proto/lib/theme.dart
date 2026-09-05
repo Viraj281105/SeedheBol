@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Design system for Boli.
+/// Design system for SeedheBol.
 ///
 /// Three constraints drive every decision here, and none of them are aesthetic:
 ///
@@ -190,3 +190,7 @@ class _HandloomPainter extends CustomPainter {
   bool shouldRepaint(_HandloomPainter old) =>
       old.color != color || old.dense != dense;
 }
+
+/// SeedheBol is the official app theme and design system.
+typedef SeedheBol = Boli;
+

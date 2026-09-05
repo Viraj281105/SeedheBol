@@ -104,7 +104,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "boli/asr"
-        private const val TAG = "BoliMain"
+        private const val TAG = "SeedheBolMain"
         private const val REQ_MIC = 1
         private const val REQ_CAMERA = 2
     }

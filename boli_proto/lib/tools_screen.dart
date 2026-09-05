@@ -4,6 +4,7 @@ import 'data.dart';
 import 'roleplay_screen.dart';
 import 'theme.dart';
 import 'widgets.dart';
+import 'with_someone_screen.dart';
 
 /// Phone-native capabilities, surfaced as tools rather than buried in settings.
 ///
@@ -121,6 +122,13 @@ class _ToolCard extends StatelessWidget {
                 scenario: 'Talking to a supervisor',
                 scenarioNative: 'संवाद — सुपरवायझरशी',
               ),
+            ),
+          );
+        } else if (index == 4) {
+          // Practise with someone — Gemma-powered peer translation & coaching
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const WithSomeoneScreen(),
             ),
           );
         } else {

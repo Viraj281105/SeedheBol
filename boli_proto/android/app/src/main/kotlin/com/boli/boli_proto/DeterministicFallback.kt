@@ -199,7 +199,65 @@ class DeterministicFallback {
             "pronunciation_score" to -0.35,
             "weak_phonemes" to listOf("ट"),
             "articulatory_hint" to "जीभ को तालू के पिछले भाग से स्पर्श करें",
+            "natural_phrasing" to "हे काम व्यवस्थित झाले आहे.",
+            "intent_explanation" to "कामाविषयी संवाद साधला.",
             "ai_source" to "fallback",
+        )
+    }
+
+    // --------------------------------------------------------------------------
+    // Dynamic workplace exercises fallback
+    // --------------------------------------------------------------------------
+
+    fun generateDynamicExercises(
+        situation: String,
+        domain: String,
+        ctx: GemmaContext,
+    ): List<DynamicExercise> {
+        return listOf(
+            DynamicExercise(
+                kind = "speak",
+                prompt = "कामाची माहिती द्या (Report work status)",
+                targetText = "काम पूर्ण झाले आहे, तपासा.",
+                roman = "Kaam poorna jhaale aahe, tapaasaa.",
+                translation = "काम पूरा हो गया है, जांच लीजिए।",
+            ),
+            DynamicExercise(
+                kind = "choice",
+                prompt = "कामाच्या ठिकाणी मदत हवी असल्यास काय म्हणाल?",
+                targetText = "मला येथे मदत हवी आहे",
+                roman = "",
+                translation = "मुझे यहां मदद चाहिए",
+                options = listOf("मला येथे मदत हवी आहे", "दुकान कुठे आहे", "घरी जायचे आहे"),
+                answerIndex = 0,
+            ),
+            DynamicExercise(
+                kind = "speak",
+                prompt = "पुढचे काम विचारा (Ask for next instruction)",
+                targetText = "पुढचे काम काय करायचे आहे?",
+                roman = "Pudhche kaam kaay karaayche aahe?",
+                translation = "आगे का काम क्या करना है?",
+            ),
+        )
+    }
+
+    // --------------------------------------------------------------------------
+    // Peer coaching fallback for "With Someone"
+    // --------------------------------------------------------------------------
+
+    fun coachPeerTurn(
+        spokenText: String,
+        speakerRole: String,
+        ctx: GemmaContext,
+    ): PeerTurnCoachResult {
+        return PeerTurnCoachResult(
+            speakerRole = speakerRole,
+            spokenText = spokenText,
+            translation = if (spokenText.isNotBlank()) "संदेश: $spokenText" else "काहीही ऐकू आले नाही",
+            betterWay = if (spokenText.isNotBlank()) "कृपया $spokenText" else "",
+            coachTip = "संवादात स्पष्ट आणि शांत आवाजात बोला.",
+            nextPromptSuggestion = "पुढे काय करायचे ते विचारा.",
+            source = "fallback",
         )
     }
 
@@ -227,6 +285,6 @@ class DeterministicFallback {
     }
 
     companion object {
-        private const val TAG = "BoliDeterministic"
+        private const val TAG = "SeedheBolDeterministic"
     }
 }

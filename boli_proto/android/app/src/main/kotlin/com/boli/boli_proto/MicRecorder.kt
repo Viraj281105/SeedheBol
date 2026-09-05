@@ -12,7 +12,7 @@ import android.util.Log
  */
 object MicRecorder {
 
-    private const val TAG = "BoliAsr"
+    private const val TAG = "SeedheBolAsr"
     private const val SAMPLE_RATE = 16000
 
     fun record(seconds: Float = 6f): FloatArray {
