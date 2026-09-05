@@ -52,6 +52,7 @@ abstract class IBoliBridge {
   Future<void> startAmbientMining();
   Future<void> stopAmbientMining();
   Future<bool> isAmbientMiningActive();
+  Future<Map<String, dynamic>> mineSamplePhraseNow();
 
   // Camera OCR Lesson Generation
   Future<List<String>> extractTextFromImage(
@@ -270,6 +271,14 @@ class BoliBridge implements IBoliBridge {
       'isAmbientMiningActive',
     );
     return result ?? false;
+  }
+
+  @override
+  Future<Map<String, dynamic>> mineSamplePhraseNow() async {
+    final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+      'mineSamplePhraseNow',
+    );
+    return result ?? const {};
   }
 
   @override

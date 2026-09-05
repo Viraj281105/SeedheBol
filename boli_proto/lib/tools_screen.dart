@@ -518,6 +518,7 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
     with SingleTickerProviderStateMixin {
   bool _active = false;
   bool _loading = false;
+  bool _miningImmediate = false;
   final List<AmbientMinedLemmaEvent> _minedList = [];
   StreamSubscription<AmbientMinedLemmaEvent>? _sub;
   late AnimationController _pulseController;
@@ -538,8 +539,9 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
     _sub = BoliBridge.instance.onAmbientLemmaDiscovered.listen((event) {
       if (mounted) {
         setState(() {
+          _minedList.removeWhere((e) => e.lemma == event.lemma);
           _minedList.insert(0, event);
-          if (_minedList.length > 6) _minedList.removeLast();
+          if (_minedList.length > 8) _minedList.removeLast();
         });
       }
     });
@@ -569,6 +571,24 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
       }
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _mineNextWordNow() async {
+    if (_miningImmediate) return;
+    setState(() => _miningImmediate = true);
+    try {
+      final res = await BoliBridge.instance.mineSamplePhraseNow();
+      if (res.isNotEmpty && mounted) {
+        final ev = AmbientMinedLemmaEvent.fromMap(res);
+        setState(() {
+          _minedList.removeWhere((e) => e.lemma == ev.lemma);
+          _minedList.insert(0, ev);
+        });
+        BoliBridge.instance.speakPrompt(text: ev.lemma);
+      }
+    } finally {
+      if (mounted) setState(() => _miningImmediate = false);
     }
   }
 
@@ -694,12 +714,37 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
             dense: true,
           ),
           const SizedBox(height: 10),
-          if (!_active)
+          if (!_active) ...[
             Text(
               'Passively hears regional target vocabulary in busy canteens, buses, and sites. Ephemeral 30s circular buffer in RAM — zero raw audio persisted (DPDP 2023 compliant).',
               style: Boli.body(13, color: Boli.inkSoft),
-            )
-          else ...[
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _miningImmediate ? null : _mineNextWordNow,
+                    icon: _miningImmediate
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Boli.peacock),
+                          )
+                        : const Icon(Icons.flash_on_rounded, size: 16, color: Boli.peacock),
+                    label: const Text('Discover Word Now · आता शब्द शोधा'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Boli.peacock,
+                      side: BorderSide(color: Boli.peacock.withValues(alpha: 0.4)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      textStyle: Boli.body(12, weight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
             Row(
               children: [
                 const Icon(Icons.lock_rounded, size: 13, color: Boli.leaf),
@@ -710,6 +755,24 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
                     12,
                     color: Boli.leaf,
                     weight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                InkWell(
+                  onTap: _miningImmediate ? null : _mineNextWordNow,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    child: Row(
+                      children: [
+                        Icon(Icons.add_circle_outline_rounded, size: 14, color: Boli.leaf),
+                        const SizedBox(width: 4),
+                        Text(
+                          '+ Discover Now',
+                          style: Boli.body(11.5, weight: FontWeight.w700, color: Boli.leaf),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -742,7 +805,7 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
               )
             else ...[
               Text(
-                'Recently Mined Regional Words:',
+                'Recently Mined Regional Words (${_minedList.length}):',
                 style: Boli.body(
                   12.5,
                   color: Boli.inkSoft,
@@ -750,7 +813,7 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
                 ),
               ),
               const SizedBox(height: 6),
-              for (final ev in _minedList.take(3))
+              for (final ev in _minedList.take(4))
                 Container(
                   margin: const EdgeInsets.only(bottom: 6),
                   padding: const EdgeInsets.symmetric(
@@ -775,9 +838,12 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
                                   style: Boli.head(17, weight: 700),
                                 ),
                                 const SizedBox(width: 6),
-                                Text(
-                                  '(${ev.transliteration}) · ${ev.translationL1}',
-                                  style: Boli.body(13, color: Boli.inkSoft),
+                                Expanded(
+                                  child: Text(
+                                    '(${ev.transliteration}) · ${ev.translationL1}',
+                                    style: Boli.body(13, color: Boli.inkSoft),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                               ],
                             ),
@@ -794,22 +860,12 @@ class _AmbientMiningServiceCardState extends State<_AmbientMiningServiceCard>
                           ],
                         ),
                       ),
-                      GestureDetector(
-                        onTap: () =>
-                            BoliBridge.instance.speakPrompt(text: ev.lemma),
-                        child: Container(
-                          width: 34,
-                          height: 34,
-                          decoration: BoxDecoration(
-                            color: Boli.peacock.withValues(alpha: .12),
-                            borderRadius: BorderRadius.circular(17),
-                          ),
-                          child: const Icon(
-                            Icons.volume_up_rounded,
-                            size: 18,
-                            color: Boli.peacock,
-                          ),
-                        ),
+                      IconButton(
+                        icon: const Icon(Icons.volume_up_rounded, color: Boli.peacock, size: 20),
+                        tooltip: 'Listen',
+                        padding: const EdgeInsets.all(6),
+                        constraints: const BoxConstraints(),
+                        onPressed: () => BoliBridge.instance.speakPrompt(text: ev.lemma),
                       ),
                     ],
                   ),

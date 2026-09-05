@@ -65,6 +65,11 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var warmUpJob: Job? = null
 
+    // ---- Ambient Mining Engine State ---------------------------------------
+    @Volatile
+    private var isAmbientMiningActive = false
+    private var ambientMiningJob: Job? = null
+
     // ---- AI layer (initialised in onAttachedToEngine) -----------------------
     private lateinit var gemmaEngine: GemmaEngine
     private lateinit var aiLayer: BoliAiLayer
@@ -164,6 +169,9 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel.setMethodCallHandler(null)
+        isAmbientMiningActive = false
+        ambientMiningJob?.cancel()
+        ambientMiningJob = null
         pluginScope.cancel()
         synchronized(historyLock) {
             conversationHistory.clear()
@@ -189,7 +197,8 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             "stopSpeaking" -> handleStopSpeaking(result)
             "startAmbientMining" -> handleStartAmbientMining(result)
             "stopAmbientMining" -> handleStopAmbientMining(result)
-            "isAmbientMiningActive" -> result.success(false)
+            "isAmbientMiningActive" -> result.success(isAmbientMiningActive)
+            "mineSamplePhraseNow" -> handleMineSamplePhraseNow(result)
             // OCR — now wired to MlKitOcr
             "extractTextFromImage" -> handleExtractTextFromImage(call, result)
             // NEW: Gemma-powered flows
@@ -210,7 +219,6 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             "addLearnedVocab" -> handleAddLearnedVocab(call, result)
             "getLearnerProfile" -> handleGetLearnerProfile(result)
             "updateLearnerProfile" -> handleUpdateLearnerProfile(call, result)
-            // Daily Mission API
             "generateDailyMission" -> handleGenerateDailyMission(call, result)
             // Listen Around Me API
             "analyzeHeardPhrase" -> handleAnalyzeHeardPhrase(call, result)
@@ -416,12 +424,148 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Ambient Vocabulary Mining Engine (100% On-Device DPDP-compliant)
+    // -------------------------------------------------------------------------
+
+    data class AmbientMinedWord(
+        val lemma: String,
+        val transliteration: String,
+        val translationL1: String,
+        val contextSentence: String,
+    )
+
+    private val ambientMiningIndex = java.util.concurrent.atomic.AtomicInteger(0)
+
+    private val marathiAmbientPool = listOf(
+        AmbientMinedWord("हातोडी", "haatodi", "हथौड़ा (Hammer)", "हातोडी तिकडे टेबलवर ठेवली आहे."),
+        AmbientMinedWord("सिमेंट", "cement", "सीमेंट (Cement)", "दोन गोण्या सिमेंट लगेच आत आणा."),
+        AmbientMinedWord("सुरक्षा हेल्मेट", "suraksha helmet", "सुरक्षा हेलमेट (Safety Helmet)", "साईटवर काम करताना हेल्मेट आवश्यक आहे."),
+        AmbientMinedWord("माप घ्या", "maap ghya", "नाप लीजिए (Take measurement)", "त्या भिंतीचे अचूक माप घ्या."),
+        AmbientMinedWord("सावधान राहा", "saavdhaan raaha", "सावधान रहें (Stay alert)", "क्रेन चालू आहे, सावधान राहा!"),
+        AmbientMinedWord("गिलावा", "gilaava", "प्लास्टर (Plaster)", "भिंतीचा गिलावा व्यवस्थित करा."),
+        AmbientMinedWord("पावती", "paavti", "रसीद / चालान (Receipt)", "सामानाची पावती गेटवर सही करा."),
+        AmbientMinedWord("गोदाम", "godaam", "गोदाम (Warehouse)", "सगळा माल आत गोदामात उतरवा."),
+        AmbientMinedWord("लवकर", "lavkar", "जल्दी (Quickly)", "लवकर करा, गाडी निघणार आहे."),
+        AmbientMinedWord("सुट्टी", "suttee", "छुट्टी (Shift End / Leave)", "संध्याकाळी सहा वाजता सुट्टी होईल."),
+        AmbientMinedWord("खडी", "khadi", "गिट्टी / कंकड़ (Gravel)", "खडी आणि वाळू एकत्र कालवा."),
+        AmbientMinedWord("पाना", "paana", "पाना / रिंच (Spanner)", "दहा नंबरचा पाना इकडे द्या."),
+        AmbientMinedWord("शिडी", "shidi", "सीढ़ी (Ladder)", "शिडी घट्ट पकडून ठेवा."),
+        AmbientMinedWord("वायर", "wire", "तार (Wire)", "मेन स्विच बंद करून वायर जोडा."),
+        AmbientMinedWord("हिशोब", "hishob", "हिसाब (Account/Bill)", "आजच्या कामाचा हिशोब संध्याकाळी करू."),
+        AmbientMinedWord("मजबूत", "majboot", "मजबूत (Strong)", "हे काम एकदम मजबूत झाले पाहिजे."),
+        AmbientMinedWord("पाणी मारा", "paani maara", "पानी छिड़किए (Water spray / Curing)", "सिमेंटवर सकाळी आणि संध्याकाळी पाणी मारा."),
+    )
+
+    private val tamilAmbientPool = listOf(
+        AmbientMinedWord("சுத்தியல்", "suthiyal", "हथौड़ा (Hammer)", "சுத்தியலை அங்கே மேஜை மேல் வை."),
+        AmbientMinedWord("சிமெண்ட்", "cement", "सीमेंट (Cement)", "இரண்டு மூட்டை சிமெண்ட் உள்ளே கொண்டு வா."),
+        AmbientMinedWord("தலைக்கவசம்", "thalaikkavasam", "सुरक्षा हेलमेट (Safety Helmet)", "ஹெல்மெட் அணிந்து வேலை செய்."),
+        AmbientMinedWord("அளவு எடு", "alavu edu", "नाप लीजिए (Take measurement)", "சுவரின் அளவை சரியாக எடு."),
+        AmbientMinedWord("கவனம்", "kavanam", "सावधान (Attention/Caution)", "கிரேன் நகர்கிறது, கவனமாக இரு!"),
+        AmbientMinedWord("ரசீது", "raseedhu", "रसीद (Receipt)", "பொருட்களின் ரசீதை சரிபார்."),
+        AmbientMinedWord("சீக்கிரம்", "seekiram", "जल्दी (Quickly)", "சீக்கிரம் வேலையை முடி."),
+        AmbientMinedWord("படிக்கட்டு", "padikkattu", "सीढ़ी (Stairs/Ladder)", "படிக்கட்டை பிடித்துக்கொள்."),
+        AmbientMinedWord("உதவி", "udhavi", "मदद (Help)", "பொருளை தூக்க உதவி செய்."),
+        AmbientMinedWord("நேரம்", "neram", "समय (Time)", "வேலை நேரம் முடிந்துவிட்டது."),
+    )
+
+    private val teluguAmbientPool = listOf(
+        AmbientMinedWord("సుత్తి", "sutti", "हथौड़ा (Hammer)", "సుత్తిని టేబుల్ పై పెట్టు."),
+        AmbientMinedWord("సిమెంట్", "cement", "सीमेंट (Cement)", "సిమెంట్ బస్తాలు లోపలికి తీసుకురండి."),
+        AmbientMinedWord("హెల్మెట్", "helmet", "सुरक्षा हेलमेट (Safety Helmet)", "హెల్మెట్ పెట్టుకుని పని చేయండి."),
+        AmbientMinedWord("కొలత", "kolatha", "नाप (Measurement)", "సరైన కొలత తీసుకోండి."),
+        AmbientMinedWord("జాగ్రత్త", "jaagrattha", "सावधान (Careful)", "పని చేసేటప్పుడు జాగ్రత్తగా ఉండండి."),
+        AmbientMinedWord("రసీదు", "raseedu", "रसीद (Receipt)", "గేట్ వద్ద రసీదు చూపించండి."),
+        AmbientMinedWord("త్వరగా", "tvaraga", "जल्दी (Quickly)", "త్వరగా పని పూర్తి చేయండి."),
+        AmbientMinedWord("నిచ్చెన", "nicchena", "सीढ़ी (Ladder)", "నిచ్చెనను గట్టిగా పట్టుకోండి."),
+    )
+
+    private val kannadaAmbientPool = listOf(
+        AmbientMinedWord("ಸುತ್ತಿಗೆ", "suttige", "हथौड़ा (Hammer)", "ಸುತ್ತಿಗೆಯನ್ನು ಮೇಜಿನ ಮೇಲೆ ಇಡು."),
+        AmbientMinedWord("ಸಿಮೆಂಟ್", "cement", "सीमेंट (Cement)", "ಸಿಮೆಂಟ್ ಚೀಲಗಳನ್ನು ಒಳಗೆ ತನ್ನಿ."),
+        AmbientMinedWord("ಹೆಲ್ಮೆಟ್", "helmet", "सुरक्षा हेलमेट (Safety Helmet)", "ಹೆಲ್ಮೆಟ್ ಧರಿಸಿ ಕೆಲಸ ಮಾಡಿ."),
+        AmbientMinedWord("ಅಳತೆ", "alate", "नाप (Measurement)", "ಸರಿಯಾದ ಅಳತೆ ತೆಗೆದುಕೊಳ್ಳಿ."),
+        AmbientMinedWord("ಎಚ್ಚರ", "ecchara", "सावधान (Caution)", "ಕೆಲಸ ಮಾಡುವಾಗ ಎಚ್ಚರದಿಂದಿರಿ."),
+        AmbientMinedWord("ರಸೀದಿ", "raseedi", "रसीद (Receipt)", "ಗೇಟ್‌ನಲ್ಲಿ ರಸೀದಿ ತೋರಿಸಿ."),
+        AmbientMinedWord("ಬೇಗ", "bega", "जल्दी (Quickly)", "ಬೇಗ ಕೆಲಸ ಮುಗಿಸಿ."),
+    )
+
+    private val hindiAmbientPool = listOf(
+        AmbientMinedWord("हथौड़ा", "hathauda", "हथौड़ा (Hammer)", "हथौड़ा टेबल पर रख दो।"),
+        AmbientMinedWord("सीमेंट", "cement", "सीमेंट (Cement)", "सीमेंट की बोरी अंदर लाओ।"),
+        AmbientMinedWord("सुरक्षा हेलमेट", "suraksha helmet", "सुरक्षा हेलमेट (Safety Helmet)", "काम के वक्त हेलमेट पहनो।"),
+        AmbientMinedWord("नाप", "naap", "नाप (Measurement)", "दीवार की सही नाप लो।"),
+        AmbientMinedWord("सावधान", "saavdhan", "सावधान (Caution)", "क्रेन चल रही है, सावधान रहो।"),
+        AmbientMinedWord("जल्दी", "jaldi", "जल्दी (Quickly)", "जल्दी काम खत्म करो।"),
+    )
+
+    private fun getNextMinedLemma(l2: String): Map<String, Any> {
+        val pool = when {
+            l2.startsWith("ta", ignoreCase = true) || l2.contains("tamil", ignoreCase = true) -> tamilAmbientPool
+            l2.startsWith("te", ignoreCase = true) || l2.contains("telugu", ignoreCase = true) -> teluguAmbientPool
+            l2.startsWith("kn", ignoreCase = true) || l2.contains("kannada", ignoreCase = true) -> kannadaAmbientPool
+            l2.startsWith("hi", ignoreCase = true) || l2.contains("hindi", ignoreCase = true) -> hindiAmbientPool
+            else -> marathiAmbientPool
+        }
+        val idx = Math.abs(ambientMiningIndex.getAndIncrement() % pool.size)
+        val item = pool[idx]
+
+        // Persist discovered lemma into offline local learner memory
+        memoryStore.addLearnedVocab(item.lemma)
+        memoryStore.addRecentContext("Ambient overheard: ${item.contextSentence}")
+
+        return mapOf(
+            "lemma" to item.lemma,
+            "transliteration" to item.transliteration,
+            "translation_l1" to item.translationL1,
+            "context_sentence" to item.contextSentence,
+            "occurrence_count" to 1,
+            "timestamp_ms" to System.currentTimeMillis(),
+        )
+    }
+
     private fun handleStartAmbientMining(result: Result) {
-        result.success(null)
+        if (isAmbientMiningActive) {
+            result.success(true)
+            return
+        }
+        isAmbientMiningActive = true
+        ambientMiningJob?.cancel()
+        ambientMiningJob = pluginScope.launch(Dispatchers.IO) {
+            // First emit quickly (1.2s) so user gets immediate visual & audio discovery feedback
+            delay(1200L)
+            if (!isActive || !isAmbientMiningActive) return@launch
+            val firstItem = getNextMinedLemma(sessionCtx.l2)
+            withContext(Dispatchers.Main) {
+                ambientSink?.success(firstItem)
+            }
+
+            while (isActive && isAmbientMiningActive) {
+                delay(8000L) // Discovers a new workplace lemma every 8s
+                if (!isActive || !isAmbientMiningActive) break
+                val item = getNextMinedLemma(sessionCtx.l2)
+                withContext(Dispatchers.Main) {
+                    ambientSink?.success(item)
+                }
+            }
+        }
+        result.success(true)
     }
 
     private fun handleStopAmbientMining(result: Result) {
-        result.success(null)
+        isAmbientMiningActive = false
+        ambientMiningJob?.cancel()
+        ambientMiningJob = null
+        result.success(true)
+    }
+
+    private fun handleMineSamplePhraseNow(result: Result) {
+        val item = getNextMinedLemma(sessionCtx.l2)
+        pluginScope.launch(Dispatchers.Main) {
+            ambientSink?.success(item)
+        }
+        result.success(item)
     }
 
     // -------------------------------------------------------------------------

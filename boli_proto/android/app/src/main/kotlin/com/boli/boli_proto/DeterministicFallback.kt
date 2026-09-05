@@ -773,101 +773,266 @@ class DeterministicFallback {
     // Listen Around Me fallback
     // --------------------------------------------------------------------------
 
+    // --------------------------------------------------------------------------
+    // Listen Around Me fallback (Rich Domain Lexicon & Intent Matcher)
+    // --------------------------------------------------------------------------
+
+    private val workplaceWordDict = mapOf(
+        // Marathi (mr)
+        "हातोडी" to "हथौड़ा / hammer",
+        "सिमेंट" to "सीमेंट / cement",
+        "वाळू" to "बालू / रेत / sand",
+        "खडी" to "गिट्टी / gravel",
+        "गिलावा" to "प्लास्टर / plaster",
+        "माप" to "नाप / measurement",
+        "शिडी" to "सीढ़ी / ladder",
+        "पाईप" to "पाइप / pipe",
+        "वायर" to "तार / wire",
+        "स्विच" to "स्विच / switch",
+        "चावी" to "चाबी / key",
+        "पाना" to "पाना / spanner",
+        "ड्रिल" to "ड्रिल / drill",
+        "लोखंड" to "लोहा / iron",
+        "लाकूड" to "लकड़ी / wood",
+        "रंग" to "पेंट / रंग / paint",
+        "झाडू" to "झाड़ू / broom",
+        "पाणी" to "पानी / water",
+        "गोणी" to "बोरी / sack",
+        "हेल्मेट" to "हेलमेट / helmet",
+        "काळजी" to "सावधानी / caution",
+        "धोका" to "खतरा / danger",
+        "सावकाश" to "धीरे / slowly",
+        "लवकर" to "जल्दी / quickly",
+        "थांबा" to "रुकिए / stop",
+        "तिकडे" to "उधर / there",
+        "इकडे" to "इधर / here",
+        "वर" to "ऊपर / up",
+        "खाली" to "नीचे / down",
+        "बाहेर" to "बाहर / outside",
+        "आत" to "अंदर / inside",
+        "गोदाम" to "गोदाम / warehouse",
+        "गोडाउन" to "गोदाम / warehouse",
+        "माल" to "माल / goods",
+        "सामान" to "सामान / material",
+        "पावती" to "रसीद / receipt",
+        "सही" to "हस्ताक्षर / signature",
+        "वजन" to "वजन / weight",
+        "वेळ" to "समय / time",
+        "उशीर" to "देर / delay",
+        "पगार" to "वेतन / salary",
+        "सुट्टी" to "छुट्टी / leave",
+        "जेवण" to "खाना / meal",
+        "चहा" to "चाय / tea",
+        "साहेब" to "साहब / boss",
+        "काम" to "काम / work",
+        "मदत" to "मदद / help",
+        "मजबूत" to "मजबूत / strong",
+        "सुरू" to "शुरू / start",
+        "संपले" to "खत्म / finished",
+        "पत्ता" to "पता / address",
+        "ओळखपत्र" to "पहचान पत्र / ID card",
+        // Tamil (ta)
+        "சுத்தியல்" to "हथौड़ा / hammer",
+        "சிமெண்ட்" to "सीमेंट / cement",
+        "மணல்" to "बालू / sand",
+        "வேலை" to "काम / work",
+        "நேரம்" to "समय / time",
+        "சீக்கிரம்" to "जल्दी / quickly",
+        "உதவி" to "मदद / help",
+        "கவனம்" to "सावधान / caution",
+        "தலைக்கவசம்" to "हेलमेट / helmet",
+        "ரசீது" to "रसीद / receipt",
+        "படிக்கட்டு" to "सीढ़ी / stairs",
+        "தண்ணீர்" to "पानी / water",
+        // Telugu (te)
+        "సుత్తి" to "हथौड़ा / hammer",
+        "సిమెంట్" to "सीमेंट / cement",
+        "ఇసుక" to "बालू / sand",
+        "పని" to "काम / work",
+        "సమయం" to "समय / time",
+        "త్వరగా" to "जल्दी / quickly",
+        "సహాయం" to "मदद / help",
+        "జాగ్రత్త" to "सावधान / caution",
+        "హెల్మెట్" to "हेलमेट / helmet",
+        "రసీదు" to "रसीद / receipt",
+        "నీరు" to "पानी / water",
+        // Kannada (kn)
+        "ಸುತ್ತಿಗೆ" to "हथौड़ा / hammer",
+        "ಸಿಮೆಂಟ್" to "सीमेंट / cement",
+        "ಮರಳು" to "बालू / sand",
+        "ಕೆಲಸ" to "काम / work",
+        "ಸಮಯ" to "समय / time",
+        "ಬೇಗ" to "जल्दी / quickly",
+        "ಸಹಾಯ" to "मदद / help",
+        "ಎಚ್ಚರ" to "सावधान / caution",
+        "ಹೆಲ್ಮೆಟ್" to "हेलमेट / helmet",
+        "ರಸೀದಿ" to "रसीद / receipt",
+        "ನೀರು" to "पानी / water"
+    )
+
     fun analyzeHeardPhrase(phrase: String, ctx: GemmaContext): HeardPhraseAnalysis {
-        val p = phrase.lowercase()
-        return when {
-            p.contains("कुठे") || p.contains("सामान") || p.contains("ठेव") -> HeardPhraseAnalysis(
+        val p = phrase.lowercase().trim()
+        val tokens = p.split(Regex("[\\s,?.!।\"'\\-]+")).filter { it.isNotBlank() }
+
+        // Dynamic word extraction from phrase
+        val extractedWords = mutableListOf<WordMeaning>()
+        for (token in tokens) {
+            val meaning = workplaceWordDict[token]
+            if (meaning != null && extractedWords.none { it.word == token }) {
+                extractedWords.add(WordMeaning(token, meaning))
+            }
+        }
+
+        // 1. Placement / Logistics / Material location
+        if (p.contains("कुठे") || p.contains("सामान") || p.contains("ठेव") || p.contains("गोदाम") || p.contains("उतरवा") || p.contains("खाली करा")) {
+            val words = if (extractedWords.isNotEmpty()) extractedWords else listOf(
+                WordMeaning("सामान", "सामग्री / goods"),
+                WordMeaning("कुठे", "कहाँ / where"),
+                WordMeaning("ठेवायचं", "रखना है / to place"),
+            )
+            return HeardPhraseAnalysis(
                 heardPhrase = phrase,
-                meaningL1 = "पूछा जा रहा है कि सामान कहां रखना है या सामग्री कहां उतारनी है।",
+                meaningL1 = "पूछा जा रहा है कि सामान कहां रखना है या सामग्री कहां खाली करनी है।",
                 toneIntent = "विचारणा / Workplace Inquiry",
-                importantWords = listOf(
-                    WordMeaning("सामान", "सामग्री / goods"),
-                    WordMeaning("कुठे", "कहाँ / where"),
-                    WordMeaning("ठेवायचं", "रखना है / to place"),
-                ),
+                importantWords = words,
                 suggestedReplyL2 = "हे सामान आत गोदामात ठेवा.",
                 replyMeaningL1 = "यह सामान अंदर गोदाम में रख दीजिए।",
                 replyRoman = "he saamaan aat godaamaat theva",
                 source = "fallback",
             )
-            p.contains("लवकर") || p.contains("वेळ") || p.contains("उशीर") -> HeardPhraseAnalysis(
+        }
+
+        // 2. Urgent Time / Hurry / Shift Wrapup
+        if (p.contains("लवकर") || p.contains("वेळ") || p.contains("उशीर") || p.contains("पटकन") || p.contains("घाई") || p.contains("சீக்கிரம்") || p.contains("త్వరగా") || p.contains("ಬೇಗ")) {
+            val words = if (extractedWords.isNotEmpty()) extractedWords else listOf(
+                WordMeaning("लवकर", "जल्दी / quickly"),
+                WordMeaning("वेळ", "समय / time"),
+                WordMeaning("कमी", "कम / short"),
+            )
+            return HeardPhraseAnalysis(
                 heardPhrase = phrase,
                 meaningL1 = "काम जल्दी पूरा करने की ताकीद की जा रही है क्योंकि समय कम है।",
                 toneIntent = "ताकीद / Urgent Instruction",
-                importantWords = listOf(
-                    WordMeaning("लवकर", "जल्दी / quickly"),
-                    WordMeaning("वेळ", "समय / time"),
-                    WordMeaning("कमी", "कम / short"),
-                ),
+                importantWords = words,
                 suggestedReplyL2 = "हो, मी लगेच पूर्ण करतो.",
                 replyMeaningL1 = "जी, मैं अभी तुरंत पूरा करता हूँ।",
                 replyRoman = "ho, mee lagech poorna karto",
                 source = "fallback",
             )
-            p.contains("तिकडे") || p.contains("जाऊ नका") || p.contains("थांबा") || p.contains("धोका") -> HeardPhraseAnalysis(
+        }
+
+        // 3. Safety Alert / Hazard / Restricted Zone
+        if (p.contains("तिकडे") || p.contains("जाऊ नका") || p.contains("थांबा") || p.contains("धोका") || p.contains("हेल्मेट") || p.contains("काळजी") || p.contains("கவனம்") || p.contains("జాగ్రత్త") || p.contains("ಎಚ್ಚರ")) {
+            val words = if (extractedWords.isNotEmpty()) extractedWords else listOf(
+                WordMeaning("तिकडे", "उधर / there"),
+                WordMeaning("जाऊ नका", "मत जाइए / don't go"),
+                WordMeaning("काळजी", "सावधानी / caution"),
+            )
+            return HeardPhraseAnalysis(
                 heardPhrase = phrase,
                 meaningL1 = "चेतावनी दी जा रही है कि उस तरफ मत जाइए, वहां खतरा या काम चल रहा है।",
                 toneIntent = "चेतावणी / Safety Warning",
-                importantWords = listOf(
-                    WordMeaning("तिकडे", "उधर / there"),
-                    WordMeaning("जाऊ नका", "मत जाइए / don't go"),
-                    WordMeaning("काळजी", "सावधानी / caution"),
-                ),
+                importantWords = words,
                 suggestedReplyL2 = "ठीक आहे, मी इकडेच थांबतो.",
                 replyMeaningL1 = "ठीक है, मैं यहीं रुकता हूँ।",
                 replyRoman = "theek aahe, mee ikdech thaambto",
                 source = "fallback",
             )
-            p.contains("पावती") || p.contains("पास") || p.contains("कार्ड") || p.contains("दाखवा") -> HeardPhraseAnalysis(
+        }
+
+        // 4. Verification / Challan / Entry Pass / ID
+        if (p.contains("पावती") || p.contains("पास") || p.contains("कार्ड") || p.contains("दाखवा") || p.contains("नोंद") || p.contains("रसीद") || p.contains("రసీదు") || p.contains("ரசீது")) {
+            val words = if (extractedWords.isNotEmpty()) extractedWords else listOf(
+                WordMeaning("पावती", "रसीद / receipt"),
+                WordMeaning("दाखवा", "दिखाइए / show"),
+                WordMeaning("तपासा", "जांचिए / verify"),
+            )
+            return HeardPhraseAnalysis(
                 heardPhrase = phrase,
                 meaningL1 = "गेट पर या काउंटर पर पर्ची या पहचान पत्र दिखाने को कहा जा रहा है।",
                 toneIntent = "मागणी / Verification Request",
-                importantWords = listOf(
-                    WordMeaning("पावती", "रसीद / receipt"),
-                    WordMeaning("दाखवा", "दिखाइए / show"),
-                    WordMeaning("तपासा", "जांचिए / verify"),
-                ),
+                importantWords = words,
                 suggestedReplyL2 = "ही घ्या माझी पावती.",
                 replyMeaningL1 = "यह लीजिए मेरी पर्ची / रसीद।",
                 replyRoman = "hee ghya maajhi paavti",
                 source = "fallback",
             )
-            else -> {
-                val (replyL2, replyL1, replyRoman) = when {
-                    ctx.l2.startsWith("ta", ignoreCase = true) || ctx.l2.contains("tamil", ignoreCase = true) ->
-                        Triple("சரி, புரிந்தது. உடனே செய்கிறேன்.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "sari, purindhadhu. udane seigiren")
-                    ctx.l2.startsWith("te", ignoreCase = true) || ctx.l2.contains("telugu", ignoreCase = true) ->
-                        Triple("సరే, అర్థమైంది. వెంటనే చేస్తాను.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "sare, arthamaindi. ventane chesthanu")
-                    ctx.l2.startsWith("kn", ignoreCase = true) || ctx.l2.contains("kannada", ignoreCase = true) ->
-                        Triple("ಸರಿ, ತಿಳಿಯಿತು. ತಕ್ಷಣ ಮಾಡುತ್ತೇನೆ.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "sari, thiliyithu. thakshana maaduththene")
-                    ctx.l2.startsWith("ml", ignoreCase = true) || ctx.l2.contains("malayalam", ignoreCase = true) ->
-                        Triple("ശരി, മനസ്സിലായി. ഉടൻ ചെയ്യാം.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "shari, manassilaayi. udan cheyyaam")
-                    ctx.l2.startsWith("bn", ignoreCase = true) || ctx.l2.contains("bengali", ignoreCase = true) ->
-                        Triple("ঠিক আছে, বুঝতে পেরেছি। এখনই করছি।", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "theek aache, bujhte perechi. ekhoni korchi")
-                    ctx.l2.startsWith("gu", ignoreCase = true) || ctx.l2.contains("gujarati", ignoreCase = true) ->
-                        Triple("બરાબર, સમજાઈ ગયું. હું હમણાં જ કરું છું.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "barabar, samjai gayu. hu hamna j karu chhu")
-                    ctx.l2.startsWith("or", ignoreCase = true) || ctx.l2.contains("odia", ignoreCase = true) ->
-                        Triple("ଠିକ୍ ଅଛି, ବୁଝିପାରିଲି। ଏବେ କରୁଛି।", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "thik achhi, bujhiparili. ebe karuchhi")
-                    ctx.l2.startsWith("hi", ignoreCase = true) || ctx.l2.contains("hindi", ignoreCase = true) ->
-                        Triple("हाँ, समझ गया। मैं तुरंत करता हूँ।", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "haan, samajh gaya. main turant karta hoon")
-                    else ->
-                        Triple("हो, समजले. मी लगेच करतो.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "ho, samajle. mee lagech karto")
-                }
-                HeardPhraseAnalysis(
-                    heardPhrase = if (phrase.isNotBlank()) phrase else "कामाची सूचना",
-                    meaningL1 = "कार्यस्थल पर काम संबंधी निर्देश या बातचीत की जा रही है।",
-                    toneIntent = "सूचना / Workplace Instruction",
-                    importantWords = listOf(
-                        WordMeaning("काम", "काम / work"),
-                        WordMeaning("निर्देश", "निर्देश / instruction"),
-                    ),
-                    suggestedReplyL2 = replyL2,
-                    replyMeaningL1 = replyL1,
-                    replyRoman = replyRoman,
-                    source = "fallback",
-                )
-            }
         }
+
+        // 5. Schedule / Timing / Tomorrow morning
+        if (p.contains("उद्या") || p.contains("सकाळी") || p.contains("वाजता") || p.contains("सुट्टी") || p.contains("रात्रपाळी")) {
+            val words = if (extractedWords.isNotEmpty()) extractedWords else listOf(
+                WordMeaning("उद्या", "कल / tomorrow"),
+                WordMeaning("सकाळी", "सुबह / morning"),
+                WordMeaning("वाजता", "बजे / o'clock"),
+            )
+            return HeardPhraseAnalysis(
+                heardPhrase = phrase,
+                meaningL1 = "कल की शिफ्ट के समय या सुबह आने का निर्देश दिया जा रहा है।",
+                toneIntent = "वेळ / Shift Schedule",
+                importantWords = words,
+                suggestedReplyL2 = "होय साहेब, मी वेळेवर हजर राहीन.",
+                replyMeaningL1 = "जी साहब, मैं समय पर उपस्थित रहूँगा।",
+                replyRoman = "hoy saheb, mee velevar hajar raheen",
+                source = "fallback",
+            )
+        }
+
+        // 6. Quality / Construction / Tools / Measurement
+        if (p.contains("माप") || p.contains("सिमेंट") || p.contains("वाळू") || p.contains("हातोडी") || p.contains("मजबूत") || p.contains("गिलावा") || p.contains("पाणी मारा")) {
+            val words = if (extractedWords.isNotEmpty()) extractedWords else listOf(
+                WordMeaning("माप", "नाप / measurement"),
+                WordMeaning("मजबूत", "मजबूत / strong"),
+                WordMeaning("काम", "काम / work"),
+            )
+            return HeardPhraseAnalysis(
+                heardPhrase = phrase,
+                meaningL1 = "निर्माण सामग्री, नाप या काम की मजबूती संबंधी निर्देश दिया जा रहा है।",
+                toneIntent = "काम सूचना / Technical Directive",
+                importantWords = words,
+                suggestedReplyL2 = "होय, मी अचूक माप घेऊन काम करतो.",
+                replyMeaningL1 = "जी, मैं सही नाप लेकर काम करता हूँ।",
+                replyRoman = "hoy, mee achuk maap gheun kaam karto",
+                source = "fallback",
+            )
+        }
+
+        // 7. Generic Intelligent Fallback (Multilingual aware)
+        val words = if (extractedWords.isNotEmpty()) extractedWords else listOf(
+            WordMeaning("काम", "काम / work"),
+            WordMeaning("सूचना", "निर्देश / instruction"),
+        )
+        val (replyL2, replyL1, replyRoman) = when {
+            ctx.l2.startsWith("ta", ignoreCase = true) || ctx.l2.contains("tamil", ignoreCase = true) ->
+                Triple("சரி, புரிந்தது. உடனே செய்கிறேன்.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "sari, purindhadhu. udane seigiren")
+            ctx.l2.startsWith("te", ignoreCase = true) || ctx.l2.contains("telugu", ignoreCase = true) ->
+                Triple("సరే, అర్థమైంది. వెంటనే చేస్తాను.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "sare, arthamaindi. ventane chesthanu")
+            ctx.l2.startsWith("kn", ignoreCase = true) || ctx.l2.contains("kannada", ignoreCase = true) ->
+                Triple("ಸರಿ, ತಿಳಿಯಿತು. ತಕ್ಷಣ ಮಾಡುತ್ತೇನೆ.", "हाँ, समझ गया। ನಾನು వెంటనే ಮಾಡುತ್ತೇನೆ।", "sari, thiliyithu. thakshana maaduththene")
+            ctx.l2.startsWith("ml", ignoreCase = true) || ctx.l2.contains("malayalam", ignoreCase = true) ->
+                Triple("ശരി, മനസ്സിലായി. ഉടൻ ചെയ്യാം.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "shari, manassilaayi. udan cheyyaam")
+            ctx.l2.startsWith("bn", ignoreCase = true) || ctx.l2.contains("bengali", ignoreCase = true) ->
+                Triple("ঠিক আছে, বুঝতে পেরেছি। এখনই করছি।", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "theek aache, bujhte perechi. ekhoni korchi")
+            ctx.l2.startsWith("gu", ignoreCase = true) || ctx.l2.contains("gujarati", ignoreCase = true) ->
+                Triple("બરાબર, સમજાઈ ગયું. હું હમણાં જ કરું છું.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "barabar, samjai gayu. hu hamna j karu chhu")
+            ctx.l2.startsWith("or", ignoreCase = true) || ctx.l2.contains("odia", ignoreCase = true) ->
+                Triple("ଠିକ୍ ଅଛି, ବୁଝିପାରିଲି। ଏବେ କରୁଛି।", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "thik achhi, bujhiparili. ebe karuchhi")
+            ctx.l2.startsWith("hi", ignoreCase = true) || ctx.l2.contains("hindi", ignoreCase = true) ->
+                Triple("हाँ, समझ गया। मैं तुरंत करता हूँ।", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "haan, samajh gaya. main turant karta hoon")
+            else ->
+                Triple("हो, समजले. मी लगेच करतो.", "हाँ, समझ गया। मैं तुरंत करता हूँ।", "ho, samajle. mee lagech karto")
+        }
+
+        return HeardPhraseAnalysis(
+            heardPhrase = if (phrase.isNotBlank()) phrase else "कामाची सूचना",
+            meaningL1 = "कार्यस्थल पर काम संबंधी निर्देश या बातचीत की जा रही है।",
+            toneIntent = "सूचना / Workplace Instruction",
+            importantWords = words,
+            suggestedReplyL2 = replyL2,
+            replyMeaningL1 = replyL1,
+            replyRoman = replyRoman,
+            source = "fallback",
+        )
     }
 
     // --------------------------------------------------------------------------

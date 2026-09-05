@@ -1185,40 +1185,60 @@ class BoliAiLayer(
 
     private fun parseHeardPhraseAnalysis(raw: String, phrase: String, ctx: GemmaContext): HeardPhraseAnalysis? {
         val lines = normalizeLlmOutputToLines(raw)
-        val meaning = findTagValue(lines, "MEANING|TRANSLATION|HINDI_MEANING") ?: return null
-        if (LlmOutputSanitizer.hasDegenerativeRepetition(meaning)) return null
+        val meaningRaw = findTagValue(lines, "MEANING|TRANSLATION|HINDI_MEANING|SUMMARY|EXPLANATION|DETAIL")
+        val meaning = if (!meaningRaw.isNullOrBlank() && !LlmOutputSanitizer.hasDegenerativeRepetition(meaningRaw)) {
+            LlmOutputSanitizer.stripPlaceholders(meaningRaw)
+        } else {
+            // Check first line if it looks like an explanation
+            val first = cleanLine(lines.firstOrNull() ?: "")
+            if (first.isNotBlank() && !first.startsWith("#") && !first.contains(":") && first.length in 8..150) {
+                first
+            } else {
+                deterministic.analyzeHeardPhrase(phrase, ctx).meaningL1
+            }
+        }
 
-        val tone = findTagValue(lines, "TONE_INTENT|TONE|INTENT") ?: "सूचना / Instruction"
+        val tone = findTagValue(lines, "TONE_INTENT|TONE|INTENT|CATEGORY|MOOD") ?: "सूचना / Workplace Instruction"
         val wordsRaw = findTagValue(lines, "IMPORTANT_WORDS|WORDS|VOCAB") ?: ""
-        var replyL2 = findTagValue(lines, "NATURAL_REPLY|REPLY|REPLY_L2") ?: return null
-        if (!LlmOutputSanitizer.isValidL2Output(replyL2, ctx.l2)) {
-            val sanitized = LlmOutputSanitizer.sanitize(replyL2)
+
+        var replyL2 = findTagValue(lines, "NATURAL_REPLY|REPLY|REPLY_L2|RESPONSE|SUGGESTED_REPLY")
+        if (replyL2.isNullOrBlank() || !LlmOutputSanitizer.isValidL2Output(replyL2, ctx.l2)) {
+            val sanitized = replyL2?.let { LlmOutputSanitizer.sanitize(it) }
             if (sanitized != null && LlmOutputSanitizer.isValidL2Output(sanitized, ctx.l2)) {
                 replyL2 = sanitized
             } else {
-                Log.w(TAG, "Gemma replyL2 invalid for ${ctx.l2}: '$replyL2'")
-                return null
+                replyL2 = deterministic.analyzeHeardPhrase(phrase, ctx).suggestedReplyL2
             }
         }
-        val replyL1 = findTagValue(lines, "REPLY_NATIVE|REPLY_L1|REPLY_MEANING") ?: ""
-        val replyRoman = findTagValue(lines, "REPLY_ROMAN|ROMAN") ?: ""
+        val replyL1 = findTagValue(lines, "REPLY_NATIVE|REPLY_L1|REPLY_MEANING|REPLY_TRANS")
+            ?: deterministic.analyzeHeardPhrase(phrase, ctx).replyMeaningL1
+        val replyRoman = findTagValue(lines, "REPLY_ROMAN|ROMAN")
+            ?: deterministic.analyzeHeardPhrase(phrase, ctx).replyRoman
 
         val wordList = mutableListOf<WordMeaning>()
         if (wordsRaw.isNotBlank()) {
-            val pairs = wordsRaw.split(";", ",")
+            val pairs = wordsRaw.split(";", "\n", ",")
             for (p in pairs) {
-                val parts = p.split("=", ":", "-").map { it.trim() }
+                val cleanPair = cleanLine(p)
+                val parts = cleanPair.split("=", ":", " - ").map { it.trim() }
                 if (parts.size >= 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
                     wordList.add(WordMeaning(parts[0], parts[1]))
                 }
             }
         }
 
+        // If word extraction from tags was empty, fallback to rich deterministic token dictionary
+        val finalWords = if (wordList.isNotEmpty()) {
+            wordList.distinctBy { it.word }.take(5)
+        } else {
+            deterministic.analyzeHeardPhrase(phrase, ctx).importantWords
+        }
+
         return HeardPhraseAnalysis(
             heardPhrase = phrase,
             meaningL1 = meaning,
             toneIntent = tone,
-            importantWords = wordList,
+            importantWords = finalWords,
             suggestedReplyL2 = replyL2,
             replyMeaningL1 = replyL1,
             replyRoman = replyRoman,

@@ -63,14 +63,46 @@ class _ListenAroundScreenState extends State<ListenAroundScreen> with SingleTick
 
   final Set<String> _savedWords = {};
 
-  // Sample phrases frequently overheard in blue-collar workplaces
-  final List<String> _samplePhrases = const [
-    'हे सामान कुठे ठेवायचं?',
-    'तिकडे जाऊ नका, काम चालू आहे!',
-    'लवकर करा, वेळ कमी आहे!',
-    'पावती दाखवा आणि नोंद करा.',
-    'उद्या सकाळी आठ वाजता या.',
+  int _selectedCategoryIndex = 0;
+  final List<String> _categories = const [
+    'सर्व (All)',
+    'सुरक्षा व साधने (Safety)',
+    'गोदाम व माल (Cargo)',
+    'वेळ व सूचना (Shift)',
   ];
+
+  final Map<int, List<String>> _phrasesByCategory = const {
+    0: [
+      'हे सामान कुठे ठेवायचं?',
+      'तिकडे जाऊ नका, काम चालू आहे!',
+      'लवकर करा, वेळ कमी आहे!',
+      'पावती दाखवा आणि नोंद करा.',
+      'उद्या सकाळी आठ वाजता या.',
+      'दहा नंबरचा पाना इकडे द्या.',
+      'सिमेंटवर व्यवस्थित पाणी मारा.',
+    ],
+    1: [
+      'तिकडे जाऊ नका, काम चालू आहे!',
+      'साईटवर हेल्मेट घातल्याशिवाय प्रवेश नाही.',
+      'दहा नंबरचा पाना इकडे द्या.',
+      'शिडी घट्ट पकडून ठेवा, घसरू नये.',
+      'क्रेन चालू आहे, सावधान राहा!',
+    ],
+    2: [
+      'हे सामान कुठे ठेवायचं?',
+      'पावती दाखवा आणि गेटवर नोंद करा.',
+      'सगळा माल आत गोदामात खाली करा.',
+      'टेम्पो मागे वळवायला वाट दाखवा.',
+      'दोन गोण्या सिमेंट लगेच आत आणा.',
+    ],
+    3: [
+      'लवकर करा, वेळ कमी आहे!',
+      'उद्या सकाळी आठ वाजता कामावर या.',
+      'संध्याकाळी सहा वाजता आजची सुट्टी होईल.',
+      'आज रात्रीची शिफ्ट कोणाची आहे?',
+      'काम वेळेवर पूर्ण झाले पाहिजे.',
+    ],
+  };
 
   @override
   void initState() {
@@ -131,7 +163,7 @@ class _ListenAroundScreenState extends State<ListenAroundScreen> with SingleTick
 
     setState(() {
       _listening = true;
-      _statusText = 'ऐकत आहे… ऐकलेले शब्द आता मोठ्याने बोला (Speaking…)';
+      _statusText = 'ऐकत आहे… ऐकलेले शब्द आता मोठ्याने बोला (5 sec audio capture)';
     });
     _pulseController.repeat(reverse: true);
     HapticFeedback.selectionClick();
@@ -491,7 +523,39 @@ class _ListenAroundScreenState extends State<ListenAroundScreen> with SingleTick
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
+
+              // Category filter chips
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (int i = 0; i < _categories.length; i++) ...[
+                      ChoiceChip(
+                        label: Text(_categories[i]),
+                        selected: _selectedCategoryIndex == i,
+                        onSelected: (sel) {
+                          if (sel) setState(() => _selectedCategoryIndex = i);
+                        },
+                        selectedColor: Boli.peacock,
+                        labelStyle: Boli.body(
+                          12,
+                          weight: FontWeight.w700,
+                          color: _selectedCategoryIndex == i ? Boli.cream : Boli.ink,
+                        ),
+                        backgroundColor: Boli.paper,
+                        side: BorderSide(
+                          color: _selectedCategoryIndex == i ? Boli.peacock : Boli.sand,
+                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        showCheckmark: false,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
 
               if (_showTextInput) ...[
                 Container(
@@ -531,7 +595,7 @@ class _ListenAroundScreenState extends State<ListenAroundScreen> with SingleTick
                 const SizedBox(height: 12),
               ],
 
-              for (final phrase in _samplePhrases) ...[
+              for (final phrase in (_phrasesByCategory[_selectedCategoryIndex] ?? _phrasesByCategory[0]!)) ...[
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: InkWell(
@@ -724,7 +788,13 @@ class _ListenAroundScreenState extends State<ListenAroundScreen> with SingleTick
 
           // Important Words Breakdown
           if (_importantWords.isNotEmpty) ...[
-            Text('महत्वाचे शब्द · KEY WORDS', style: Boli.label(color: Boli.inkSoft, size: 11)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('महत्वाचे शब्द · KEY WORDS', style: Boli.label(color: Boli.inkSoft, size: 11)),
+                Text('Tap word to listen & save', style: Boli.body(11, color: Boli.inkSoft)),
+              ],
+            ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -732,7 +802,13 @@ class _ListenAroundScreenState extends State<ListenAroundScreen> with SingleTick
               children: [
                 for (final item in _importantWords)
                   GestureDetector(
-                    onTap: () => _saveWord(item['word'] ?? ''),
+                    onTap: () {
+                      final word = item['word'] ?? '';
+                      if (word.isNotEmpty) {
+                        _speak(word);
+                        _saveWord(word);
+                      }
+                    },
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
@@ -746,6 +822,8 @@ class _ListenAroundScreenState extends State<ListenAroundScreen> with SingleTick
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          const Icon(Icons.volume_up_rounded, size: 14, color: Boli.peacock),
+                          const SizedBox(width: 4),
                           Text(
                             item['word'] ?? '',
                             style: Boli.body(14, weight: FontWeight.w700, color: Boli.ink),
@@ -759,7 +837,7 @@ class _ListenAroundScreenState extends State<ListenAroundScreen> with SingleTick
                           Icon(
                             _savedWords.contains(item['word']) ? Icons.check_circle_rounded : Icons.bookmark_add_outlined,
                             size: 14,
-                            color: _savedWords.contains(item['word']) ? Boli.peacock : Boli.inkSoft,
+                            color: _savedWords.contains(item['word']) ? Boli.leaf : Boli.inkSoft,
                           ),
                         ],
                       ),
