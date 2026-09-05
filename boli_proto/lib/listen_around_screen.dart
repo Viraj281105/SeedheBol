@@ -511,7 +511,9 @@ class _ListenAroundScreenState extends State<ListenAroundScreen> with SingleTick
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const SectionHead('किंवा कामावरील शब्द निवडा · QUICK SAMPLES'),
+                  const Expanded(
+                    child: SectionHead('किंवा कामावरील शब्द निवडा · QUICK SAMPLES'),
+                  ),
                   TextButton.icon(
                     onPressed: () => setState(() => _showTextInput = !_showTextInput),
                     icon: Icon(_showTextInput ? Icons.keyboard_hide_rounded : Icons.edit_note_rounded, size: 16),

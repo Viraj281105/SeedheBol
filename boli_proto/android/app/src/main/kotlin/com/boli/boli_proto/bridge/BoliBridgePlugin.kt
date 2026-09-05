@@ -14,6 +14,7 @@ import com.boli.boli_proto.GemmaContext
 import com.boli.boli_proto.GemmaEngine
 import com.boli.boli_proto.LearnerMemoryStore
 import com.boli.boli_proto.MlKitOcr
+import com.boli.boli_proto.MicRecorder
 import com.boli.boli_proto.OnnxAsr
 import com.boli.boli_proto.FastPitchTts
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -69,6 +70,9 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     @Volatile
     private var isAmbientMiningActive = false
     private var ambientMiningJob: Job? = null
+
+    // Lazy ASR instance used only for ambient real-audio mining (shared model files)
+    private val ambientAsr by lazy { OnnxAsr(context) }
 
     // ---- AI layer (initialised in onAttachedToEngine) -----------------------
     private lateinit var gemmaEngine: GemmaEngine
@@ -500,7 +504,11 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         AmbientMinedWord("जल्दी", "jaldi", "जल्दी (Quickly)", "जल्दी काम खत्म करो।"),
     )
 
-    private fun getNextMinedLemma(l2: String): Map<String, Any> {
+    /**
+     * Picks a fallback word from the static pool when ASR hears silence.
+     * Used only when real audio transcription yields an empty string.
+     */
+    private fun fallbackMinedLemma(l2: String): Map<String, Any> {
         val pool = when {
             l2.startsWith("ta", ignoreCase = true) || l2.contains("tamil", ignoreCase = true) -> tamilAmbientPool
             l2.startsWith("te", ignoreCase = true) || l2.contains("telugu", ignoreCase = true) -> teluguAmbientPool
@@ -510,11 +518,8 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         }
         val idx = Math.abs(ambientMiningIndex.getAndIncrement() % pool.size)
         val item = pool[idx]
-
-        // Persist discovered lemma into offline local learner memory
         memoryStore.addLearnedVocab(item.lemma)
-        memoryStore.addRecentContext("Ambient overheard: ${item.contextSentence}")
-
+        memoryStore.addRecentContext("Ambient overheard (fallback): ${item.contextSentence}")
         return mapOf(
             "lemma" to item.lemma,
             "transliteration" to item.transliteration,
@@ -525,6 +530,80 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         )
     }
 
+    /**
+     * Records a short audio window (6s), transcribes with OnnxAsr,
+     * then asks Gemma/fallback to extract the key workplace word from what was actually heard.
+     * Falls back to the static pool when ASR hears silence.
+     */
+    private suspend fun mineFromRealAudio(): Map<String, Any> {
+        val l2 = sessionCtx.l2
+        val l1 = sessionCtx.l1
+
+        // 1. Capture 6 seconds of ambient audio
+        val pcm = withContext(Dispatchers.IO) {
+            try { MicRecorder.record(6f) } catch (e: Exception) {
+                Log.w(TAG, "Ambient mic capture failed: ${e.message}")
+                FloatArray(0)
+            }
+        }
+
+        // 2. Transcribe on-device with IndicConformer ASR
+        val transcript = if (pcm.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                try { ambientAsr.transcribe(pcm) } catch (e: Exception) {
+                    Log.w(TAG, "Ambient ASR failed: ${e.message}")
+                    ""
+                }
+            }
+        } else ""
+
+        Log.i(TAG, "Ambient ASR heard: '$transcript'")
+
+        // 3. If nothing heard, return a fallback vocabulary word
+        if (transcript.isBlank()) {
+            Log.d(TAG, "Ambient: silence detected, using fallback word")
+            return fallbackMinedLemma(l2)
+        }
+
+        // 4. Ask Gemma/fallback to analyze the phrase and extract important words from what was heard
+        return try {
+            val ctx = sessionCtx
+            val analysis = aiLayer.analyzeHeardPhrase(phrase = transcript, ctx = ctx)
+            val heardPhrase = analysis.value
+
+            // Pick the top word from what was extracted from the real audio
+            val topWord = heardPhrase.importantWords.firstOrNull()
+            if (topWord != null && topWord.word.isNotBlank()) {
+                memoryStore.addLearnedVocab(topWord.word)
+                memoryStore.addRecentContext("Ambient overheard: $transcript")
+                mapOf(
+                    "lemma" to topWord.word,
+                    "transliteration" to topWord.word, // word itself acts as transliteration hint
+                    "translation_l1" to topWord.meaning,
+                    "context_sentence" to transcript, // actual overheard sentence
+                    "occurrence_count" to 1,
+                    "timestamp_ms" to System.currentTimeMillis(),
+                )
+            } else if (transcript.isNotBlank()) {
+                // The whole phrase is new — surface it as a phrase card
+                memoryStore.addRecentContext("Ambient overheard: $transcript")
+                mapOf(
+                    "lemma" to transcript.take(60), // keep it short
+                    "transliteration" to "",
+                    "translation_l1" to heardPhrase.meaningL1,
+                    "context_sentence" to transcript,
+                    "occurrence_count" to 1,
+                    "timestamp_ms" to System.currentTimeMillis(),
+                )
+            } else {
+                fallbackMinedLemma(l2)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Ambient phrase analysis failed, using fallback: ${e.message}")
+            fallbackMinedLemma(l2)
+        }
+    }
+
     private fun handleStartAmbientMining(result: Result) {
         if (isAmbientMiningActive) {
             result.success(true)
@@ -533,21 +612,14 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         isAmbientMiningActive = true
         ambientMiningJob?.cancel()
         ambientMiningJob = pluginScope.launch(Dispatchers.IO) {
-            // First emit quickly (1.2s) so user gets immediate visual & audio discovery feedback
-            delay(1200L)
-            if (!isActive || !isAmbientMiningActive) return@launch
-            val firstItem = getNextMinedLemma(sessionCtx.l2)
-            withContext(Dispatchers.Main) {
-                ambientSink?.success(firstItem)
-            }
-
             while (isActive && isAmbientMiningActive) {
-                delay(8000L) // Discovers a new workplace lemma every 8s
+                val item = mineFromRealAudio() // records 6s, transcribes, extracts word
                 if (!isActive || !isAmbientMiningActive) break
-                val item = getNextMinedLemma(sessionCtx.l2)
                 withContext(Dispatchers.Main) {
                     ambientSink?.success(item)
                 }
+                // Short pause between capture windows so we don't record continuously
+                delay(2000L)
             }
         }
         result.success(true)
@@ -561,11 +633,13 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     }
 
     private fun handleMineSamplePhraseNow(result: Result) {
-        val item = getNextMinedLemma(sessionCtx.l2)
-        pluginScope.launch(Dispatchers.Main) {
-            ambientSink?.success(item)
+        pluginScope.launch(Dispatchers.IO) {
+            val item = mineFromRealAudio()
+            withContext(Dispatchers.Main) {
+                ambientSink?.success(item)
+                result.success(item)
+            }
         }
-        result.success(item)
     }
 
     // -------------------------------------------------------------------------

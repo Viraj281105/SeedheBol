@@ -455,16 +455,25 @@ class SectionHead extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
     children: [
       Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(text, style: Boli.label(size: 12.5)),
-          const Spacer(),
-          if (trailing != null)
+          Flexible(
+            child: Text(
+              text,
+              style: Boli.label(size: 12.5),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
             Text(
               trailing!,
               style: Boli.label(color: Boli.terracotta, size: 12.5),
             ),
+          ],
         ],
       ),
       const SizedBox(height: 6),
