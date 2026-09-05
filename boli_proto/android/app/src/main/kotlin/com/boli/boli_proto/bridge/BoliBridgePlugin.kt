@@ -55,6 +55,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
 
     private val pluginScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var warmUpJob: Job? = null
 
     // ---- AI layer (initialised in onAttachedToEngine) -----------------------
     private lateinit var gemmaEngine: GemmaEngine
@@ -85,7 +86,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         sessionCtx = memoryStore.buildPersonalizedGemmaContext()
 
         // Warm up Gemma on a background thread (same pattern as ASR/TTS in MainActivity)
-        pluginScope.launch(Dispatchers.IO) {
+        warmUpJob = pluginScope.launch(Dispatchers.IO) {
             runCatching { gemmaEngine.warmUp() }
                 .onFailure { android.util.Log.e("BoliBridge", "Gemma warmup failed", it) }
         }
@@ -159,7 +160,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             "getExplanation"              -> handleGetExplanation(call, result)
             "generatePracticeDrills"      -> handleGeneratePracticeDrills(call, result)
             "coachPeerTurn"               -> handleCoachPeerTurn(call, result)
-            "isGemmaAvailable"            -> result.success(gemmaEngine.isAvailable)
+            "isGemmaAvailable"            -> handleIsGemmaAvailable(result)
             "getHardwareTelemetry"        -> handleGetHardwareTelemetry(result)
             // Learner Memory & Personalization API
             "recordWordAttempt"           -> handleRecordWordAttempt(call, result)
@@ -168,6 +169,10 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             "addLearnedVocab"             -> handleAddLearnedVocab(call, result)
             "getLearnerProfile"           -> handleGetLearnerProfile(result)
             "updateLearnerProfile"        -> handleUpdateLearnerProfile(call, result)
+            // Daily Mission API
+            "generateDailyMission"        -> handleGenerateDailyMission(call, result)
+            // Listen Around Me API
+            "analyzeHeardPhrase"          -> handleAnalyzeHeardPhrase(call, result)
             else                          -> result.notImplemented()
         }
     }
@@ -437,6 +442,24 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         }
     }
 
+    private fun handleIsGemmaAvailable(result: Result) {
+        if (gemmaEngine.isAvailable) {
+            result.success(true)
+            return
+        }
+        val job = warmUpJob
+        if (job != null && job.isActive) {
+            pluginScope.launch {
+                withTimeoutOrNull(4000L) { job.join() }
+                withContext(Dispatchers.Main) {
+                    result.success(gemmaEngine.isAvailable)
+                }
+            }
+        } else {
+            result.success(gemmaEngine.isAvailable)
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Learner Memory & Personalization API
     // -------------------------------------------------------------------------
@@ -479,6 +502,63 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val level = call.argument<String>("level")
         memoryStore.updateProfile(l1, l2, occupation, level)
         result.success(true)
+    }
+
+    private fun handleGenerateDailyMission(call: MethodCall, result: Result) {
+        pluginScope.launch {
+            val ctx = memoryStore.buildPersonalizedGemmaContext()
+            val response = aiLayer.generateDailyMission(ctx)
+            val mission = response.value
+            withContext(Dispatchers.Main) {
+                result.success(mapOf(
+                    "title" to mission.title,
+                    "native_title" to mission.nativeTitle,
+                    "npc_role" to mission.npcRole,
+                    "objective" to mission.objective,
+                    "objective_native" to mission.objectiveNative,
+                    "opener_l2" to mission.openerL2,
+                    "opener_l1" to mission.openerL1,
+                    "target_words" to mission.targetWords,
+                    "max_turns" to mission.maxTurns,
+                    "source" to response.source.name.lowercase(),
+                    "latency_ms" to response.latencyMs,
+                ))
+            }
+        }
+    }
+
+    private fun handleAnalyzeHeardPhrase(call: MethodCall, result: Result) {
+        val phrase = call.argument<String>("phrase").orEmpty().trim()
+
+        pluginScope.launch {
+            val ctx = memoryStore.buildPersonalizedGemmaContext()
+            val response = aiLayer.analyzeHeardPhrase(phrase, ctx)
+            val analysis = response.value
+
+            // Automatically record overheard words and context into learner memory
+            if (analysis.importantWords.isNotEmpty()) {
+                analysis.importantWords.forEach { item ->
+                    memoryStore.addLearnedVocab(item.word)
+                }
+            }
+            if (analysis.heardPhrase.isNotBlank()) {
+                memoryStore.addRecentContext("Heard: ${analysis.heardPhrase}")
+            }
+
+            withContext(Dispatchers.Main) {
+                result.success(mapOf(
+                    "heard_phrase" to analysis.heardPhrase,
+                    "meaning_l1" to analysis.meaningL1,
+                    "tone_intent" to analysis.toneIntent,
+                    "important_words" to analysis.importantWords.map { mapOf("word" to it.word, "meaning" to it.meaning) },
+                    "suggested_reply_l2" to analysis.suggestedReplyL2,
+                    "reply_meaning_l1" to analysis.replyMeaningL1,
+                    "reply_roman" to analysis.replyRoman,
+                    "source" to response.source.name.lowercase(),
+                    "latency_ms" to response.latencyMs,
+                ))
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

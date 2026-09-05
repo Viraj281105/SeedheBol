@@ -129,9 +129,12 @@ class GemmaEngine(private val context: Context) {
                         inference,
                         sessionOptions(temperature = temperature, topK = topK),
                     )
-                    session.addQueryChunk(prompt)
-                    val result = session.generateResponse()
-                    session.close()
+                    val result = try {
+                        session.addQueryChunk(prompt)
+                        session.generateResponse()
+                    } finally {
+                        session.close()
+                    }
                     val ms = System.currentTimeMillis() - t0
                     Log.i(TAG, "generate [temp=$temperature]: ${result?.length ?: 0} chars in ${ms}ms -> ${result?.take(120)?.replace('\n', ' ')}")
                     result
@@ -161,19 +164,22 @@ class GemmaEngine(private val context: Context) {
                     val t0 = System.currentTimeMillis()
 
                     val session = LlmInferenceSession.createFromOptions(inference, sessionOptions())
-                    session.addQueryChunk(prompt)
+                    try {
+                        session.addQueryChunk(prompt)
 
-                    val complete = java.util.concurrent.atomic.AtomicBoolean(false)
-                    val listener = ProgressListener<String> { partial, done ->
-                        partial?.let {
-                            sb.append(it)
-                            runBlocking { onToken(it) }
+                        val complete = java.util.concurrent.atomic.AtomicBoolean(false)
+                        val listener = ProgressListener<String> { partial, done ->
+                            partial?.let {
+                                sb.append(it)
+                                runBlocking { onToken(it) }
+                            }
+                            if (done) complete.set(true)
                         }
-                        if (done) complete.set(true)
+                        session.generateResponseAsync(listener)
+                        while (!complete.get()) Thread.sleep(20)
+                    } finally {
+                        session.close()
                     }
-                    session.generateResponseAsync(listener)
-                    while (!complete.get()) Thread.sleep(20)
-                    session.close()
 
                     val ms = System.currentTimeMillis() - t0
                     Log.i(TAG, "generateStreaming: ${sb.length} chars in ${ms}ms")

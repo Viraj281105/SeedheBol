@@ -67,6 +67,12 @@ abstract class IBoliBridge {
   Future<bool> addLearnedVocab(String word);
   Future<Map<String, dynamic>> getLearnerProfile();
   Future<bool> updateLearnerProfile({String? l1, String? l2, String? occupation, String? level});
+
+  // Daily Mission API
+  Future<Map<String, dynamic>> generateDailyMission();
+
+  // Listen Around Me API
+  Future<Map<String, dynamic>> analyzeHeardPhrase(String phrase);
 }
 
 class BoliBridge implements IBoliBridge {
@@ -363,6 +369,23 @@ class BoliBridge implements IBoliBridge {
       },
     );
     return result ?? false;
+  }
+
+  @override
+  Future<Map<String, dynamic>> generateDailyMission() async {
+    final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+      'generateDailyMission',
+    );
+    return result ?? const {};
+  }
+
+  @override
+  Future<Map<String, dynamic>> analyzeHeardPhrase(String phrase) async {
+    final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+      'analyzeHeardPhrase',
+      {'phrase': phrase},
+    );
+    return result ?? const {};
   }
 }
 

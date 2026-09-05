@@ -19,7 +19,7 @@ import java.security.MessageDigest
  *   text -> character ids -> fastpitch.onnx -> mel [1,80,T]
  *                          -> hifigan.onnx  -> waveform -> AudioTrack
  *
- * Replaces the Piper path (OnnxTts.kt, kept but unused). The model is
+ * On-device neural speech synthesis pipeline. The model is
  * CHARACTER based (Coqui config: use_phonemes=false), so the text goes
  * straight in — no phonemiser, no espeak-ng, no fixed table of speakable
  * phrases. Any text whose characters are in tokens.json can be spoken.

@@ -11,7 +11,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-PY=".venv-tts/Scripts/python.exe"
+PY="${VIRTUAL_ENV:-.venv}/Scripts/python.exe"
 BASE="https://github.com/AI4Bharat/Indic-TTS/releases/download/v1-checkpoints-release"
 DIR="models/tts_fastpitch"
 LANGS=("${@:-hi bn te ta gu kn or ml}")

@@ -132,3 +132,41 @@ data class PeerTurnCoachResult(
     val source: String = "gemma",
 )
 
+/**
+ * A short, personalized real-world language mission generated dynamically by Gemma.
+ */
+data class DailyMission(
+    val title: String,
+    val nativeTitle: String,
+    val npcRole: String,
+    val objective: String,
+    val objectiveNative: String,
+    val openerL2: String,
+    val openerL1: String,
+    val targetWords: List<String> = emptyList(),
+    val maxTurns: Int = 4,
+    val source: String = "gemma",
+)
+
+/**
+ * Key vocabulary word and meaning extracted from overheard speech.
+ */
+data class WordMeaning(
+    val word: String,
+    val meaning: String,
+)
+
+/**
+ * Structured analysis of an overheard/captured workplace phrase in "Listen Around Me".
+ */
+data class HeardPhraseAnalysis(
+    val heardPhrase: String,
+    val meaningL1: String,
+    val toneIntent: String, // e.g. "Warning / चेतावणी", "Urgent Request / तातडीची विनंती", "Instruction / सूचना", "Casual / सहज"
+    val importantWords: List<WordMeaning> = emptyList(),
+    val suggestedReplyL2: String,
+    val replyMeaningL1: String,
+    val replyRoman: String = "",
+    val source: String = "gemma",
+)
+

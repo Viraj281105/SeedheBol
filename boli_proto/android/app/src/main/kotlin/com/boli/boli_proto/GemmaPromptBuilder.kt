@@ -298,4 +298,108 @@ object GemmaPromptBuilder {
         }
         return wrapTurn(userPrompt)
     }
+
+    // -------------------------------------------------------------------------
+    // Daily Mission Synthesis & Turn Evaluation
+    // -------------------------------------------------------------------------
+
+    /**
+     * Synthesizes a daily workplace mission tailored to the user's occupation,
+     * weak words, and language pair.
+     */
+    fun buildDailyMissionPrompt(ctx: GemmaContext): String {
+        val userPrompt = buildString {
+            appendLine(systemHeader(ctx))
+            appendLine()
+            appendLine("TASK: Create a 2-minute daily workplace language challenge for a ${ctx.occupation} learning ${ctx.l2}.")
+            if (ctx.frequentlyMissedWords.isNotEmpty()) {
+                appendLine("Target these struggling phrases/words: ${ctx.frequentlyMissedWords.take(3).joinToString(", ")}.")
+            }
+            if (ctx.pronunciationWeaknesses.isNotEmpty()) {
+                appendLine("Target these difficult sounds: ${ctx.pronunciationWeaknesses.take(2).joinToString(", ")}.")
+            }
+            appendLine("Format strictly as follows (no markdown bolding):")
+            appendLine("TITLE: <Short English Title, e.g. Asking for 30 more minutes>")
+            appendLine("NATIVE_TITLE: <Short Title in ${ctx.l2}, e.g. कामाची वेळ वाढवून मागणे>")
+            appendLine("NPC_ROLE: <NPC Persona, e.g. साइट सुपरवायझर>")
+            appendLine("OBJECTIVE: <What the learner must achieve in English, 1 sentence>")
+            appendLine("OBJECTIVE_NATIVE: <Same objective in ${ctx.l1}, 1 sentence>")
+            appendLine("OPENER_L2: <First sentence spoken by NPC in ${ctx.l2} to prompt the learner>")
+            appendLine("OPENER_L1: <Meaning of opener in ${ctx.l1}>")
+            appendLine("TARGET_WORDS: <comma-separated list of 2-3 target words in ${ctx.l2}>")
+            appendLine("MAX_TURNS: 4")
+        }
+        return wrapTurn(userPrompt)
+    }
+
+    /**
+     * Advances the daily mission dialogue turn by turn (3-5 turns total).
+     */
+    fun buildMissionTurnPrompt(
+        mission: DailyMission,
+        history: List<DialogueTurn>,
+        turnIndex: Int,
+        totalTurns: Int,
+        userSpokenText: String,
+        ctx: GemmaContext,
+    ): String {
+        val isFinalTurn = turnIndex >= totalTurns - 1
+        val userPrompt = buildString {
+            appendLine(systemHeader(ctx))
+            appendLine()
+            appendLine("MISSION: ${mission.title} (${mission.objective})")
+            appendLine("ROLE: You play ${mission.npcRole} speaking in ${ctx.l2}.")
+            appendLine("Turn $turnIndex of $totalTurns. Final turn: $isFinalTurn.")
+            appendLine("The learner just said: \"$userSpokenText\"")
+            appendLine("Evaluate their intent semantically. Keep responses practical and realistic for Indian workplace.")
+            if (isFinalTurn) {
+                appendLine("Since this is the final turn, bring the scenario to a satisfying conclusion (e.g. approve the request, confirm resolution).")
+            }
+            appendLine()
+            appendLine("Conversation history:")
+            for (turn in history.takeLast(4)) {
+                val speaker = if (turn.speaker == "user") "Learner" else mission.npcRole
+                appendLine("$speaker: ${turn.text}")
+            }
+            appendLine("Learner: $userSpokenText")
+            appendLine()
+            appendLine("Format strictly as follows:")
+            appendLine("NPC_L2: <your response in ${ctx.l2}>")
+            appendLine("NPC_L1: <meaning in ${ctx.l1}>")
+            appendLine("BETTER: <more natural/polite way the learner could have phrased their response in ${ctx.l2}>")
+            appendLine("FEEDBACK: <1 short sentence in ${ctx.l1} giving coaching feedback>")
+            appendLine("SUCCESS: <yes or partial or no>")
+        }
+        return wrapTurn(userPrompt)
+    }
+
+    // -------------------------------------------------------------------------
+    // Listen Around Me (Overheard / Captured Workplace Speech)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Analyzes an overheard or repeated phrase in [ctx.l2], interpreting meaning,
+     * tone, key vocabulary, and an actionable natural reply.
+     */
+    fun buildListenAroundPrompt(heardPhrase: String, ctx: GemmaContext): String {
+        val userPrompt = buildString {
+            appendLine(systemHeader(ctx))
+            appendLine()
+            appendLine("TASK: The worker (${ctx.occupation}) overheard or repeated this workplace phrase in ${ctx.l2}:")
+            appendLine("\"$heardPhrase\"")
+            appendLine()
+            appendLine("This might be colloquial, workplace slang, or slightly noisy speech.")
+            appendLine("Analyze it to help the worker instantly understand and respond.")
+            appendLine()
+            appendLine("Format strictly as follows (no markdown bolding):")
+            appendLine("MEANING: <Clear meaning in ${ctx.l1}, 1-2 short sentences>")
+            appendLine("TONE_INTENT: <Tone & intent, e.g. ताकीद / Warning, सूचना / Instruction, विनंती / Request, or विचारणा / Inquiry>")
+            appendLine("IMPORTANT_WORDS: <word1 = meaning in ${ctx.l1}; word2 = meaning in ${ctx.l1}>")
+            appendLine("NATURAL_REPLY: <A short, natural reply the worker can say in ${ctx.l2}>")
+            appendLine("REPLY_NATIVE: <Meaning of the reply in ${ctx.l1}>")
+            appendLine("REPLY_ROMAN: <Pronunciation of reply in roman letters>")
+        }
+        return wrapTurn(userPrompt)
+    }
 }
+

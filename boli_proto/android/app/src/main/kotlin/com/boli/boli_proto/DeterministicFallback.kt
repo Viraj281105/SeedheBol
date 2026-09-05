@@ -262,6 +262,131 @@ class DeterministicFallback {
     }
 
     // --------------------------------------------------------------------------
+    // Daily Mission fallback
+    // --------------------------------------------------------------------------
+
+    fun generateDailyMission(ctx: GemmaContext): DailyMission {
+        val occ = ctx.occupation.lowercase()
+        return when {
+            occ.contains("secur") -> DailyMission(
+                title = "Gate Pass Verification",
+                nativeTitle = "गेट पास पडताळणी",
+                npcRole = "व्हिजिटर (Visitor)",
+                objective = "A visitor has arrived without a badge. Politely ask for identification and register them.",
+                objectiveNative = "एक आगंतुक बिना पहचान पत्र के आया है। विनम्रतापूर्वक उनका पहचान पत्र मांगें और एंट्री करें।",
+                openerL2 = "मला मॅनेजरला भेटायला आत जायचे आहे, पण माझे ओळखपत्र सापडत नाही.",
+                openerL1 = "मुझे मैनेजर से मिलने अंदर जाना है, लेकिन मेरा पहचान पत्र नहीं मिल रहा।",
+                targetWords = listOf("ओळखपत्र", "नोंद", "नियम"),
+                maxTurns = 4,
+                source = "fallback",
+            )
+            occ.contains("deliver") -> DailyMission(
+                title = "Clarifying Customer Address",
+                nativeTitle = "ग्राहकाचा पत्ता विचारणे",
+                npcRole = "ग्राहक (Customer)",
+                objective = "You cannot locate the flat number. Call the customer and ask for a landmark.",
+                objectiveNative = "आपको फ्लैट नंबर नहीं मिल रहा। ग्राहक को कॉल करके पास का लैंडमार्क पूछें।",
+                openerL2 = "हॅलो, माझी डिलिव्हरी अजून आली नाही, तुम्ही कुठे थांबला आहात?",
+                openerL1 = "हेलो, मेरी डिलीवरी अभी तक नहीं आई, आप कहां रुके हैं?",
+                targetWords = listOf("पत्ता", "इमारत", "दोन मिनिटे"),
+                maxTurns = 4,
+                source = "fallback",
+            )
+            else -> DailyMission(
+                title = "Asking for 30 More Minutes",
+                nativeTitle = "कामाची वेळ वाढवून मागणे",
+                npcRole = "सुपरवायझर (Site Supervisor)",
+                objective = "Your supervisor asks why the work isn't finished. Explain the issue politely and request 30 more minutes.",
+                objectiveNative = "सुपरवाइजर पूछ रहे हैं काम पूरा क्यों नहीं हुआ। स्थिति समझाएं और 30 मिनट का समय मांगें।",
+                openerL2 = "काम अजून पूर्ण का झाले नाही? आजची शिफ्ट संपत आली आहे.",
+                openerL1 = "काम अभी तक पूरा क्यों नहीं हुआ? आज की शिफ्ट खत्म होने वाली है।",
+                targetWords = if (ctx.frequentlyMissedWords.isNotEmpty()) ctx.frequentlyMissedWords.take(3) else listOf("मदत", "अडचण", "वेळ"),
+                maxTurns = 4,
+                source = "fallback",
+            )
+        }
+    }
+
+    // --------------------------------------------------------------------------
+    // Listen Around Me fallback
+    // --------------------------------------------------------------------------
+
+    fun analyzeHeardPhrase(phrase: String, ctx: GemmaContext): HeardPhraseAnalysis {
+        val p = phrase.lowercase()
+        return when {
+            p.contains("कुठे") || p.contains("सामान") || p.contains("ठेव") -> HeardPhraseAnalysis(
+                heardPhrase = phrase,
+                meaningL1 = "पूछा जा रहा है कि सामान कहां रखना है या सामग्री कहां उतारनी है।",
+                toneIntent = "विचारणा / Workplace Inquiry",
+                importantWords = listOf(
+                    WordMeaning("सामान", "सामग्री / goods"),
+                    WordMeaning("कुठे", "कहाँ / where"),
+                    WordMeaning("ठेवायचं", "रखना है / to place"),
+                ),
+                suggestedReplyL2 = "हे सामान आत गोदामात ठेवा.",
+                replyMeaningL1 = "यह सामान अंदर गोदाम में रख दीजिए।",
+                replyRoman = "he saamaan aat godaamaat theva",
+                source = "fallback",
+            )
+            p.contains("लवकर") || p.contains("वेळ") || p.contains("उशीर") -> HeardPhraseAnalysis(
+                heardPhrase = phrase,
+                meaningL1 = "काम जल्दी पूरा करने की ताकीद की जा रही है क्योंकि समय कम है।",
+                toneIntent = "ताकीद / Urgent Instruction",
+                importantWords = listOf(
+                    WordMeaning("लवकर", "जल्दी / quickly"),
+                    WordMeaning("वेळ", "समय / time"),
+                    WordMeaning("कमी", "कम / short"),
+                ),
+                suggestedReplyL2 = "हो, मी लगेच पूर्ण करतो.",
+                replyMeaningL1 = "जी, मैं अभी तुरंत पूरा करता हूँ।",
+                replyRoman = "ho, mee lagech poorna karto",
+                source = "fallback",
+            )
+            p.contains("तिकडे") || p.contains("जाऊ नका") || p.contains("थांबा") || p.contains("धोका") -> HeardPhraseAnalysis(
+                heardPhrase = phrase,
+                meaningL1 = "चेतावनी दी जा रही है कि उस तरफ मत जाइए, वहां खतरा या काम चल रहा है।",
+                toneIntent = "चेतावणी / Safety Warning",
+                importantWords = listOf(
+                    WordMeaning("तिकडे", "उधर / there"),
+                    WordMeaning("जाऊ नका", "मत जाइए / don't go"),
+                    WordMeaning("काळजी", "सावधानी / caution"),
+                ),
+                suggestedReplyL2 = "ठीक आहे, मी इकडेच थांबतो.",
+                replyMeaningL1 = "ठीक है, मैं यहीं रुकता हूँ।",
+                replyRoman = "theek aahe, mee ikdech thaambto",
+                source = "fallback",
+            )
+            p.contains("पावती") || p.contains("पास") || p.contains("कार्ड") || p.contains("दाखवा") -> HeardPhraseAnalysis(
+                heardPhrase = phrase,
+                meaningL1 = "गेट पर या काउंटर पर पर्ची या पहचान पत्र दिखाने को कहा जा रहा है।",
+                toneIntent = "मागणी / Verification Request",
+                importantWords = listOf(
+                    WordMeaning("पावती", "रसीद / receipt"),
+                    WordMeaning("दाखवा", "दिखाइए / show"),
+                    WordMeaning("तपासा", "जांचिए / verify"),
+                ),
+                suggestedReplyL2 = "ही घ्या माझी पावती.",
+                replyMeaningL1 = "यह लीजिए मेरी पर्ची / रसीद।",
+                replyRoman = "hee ghya maajhi paavti",
+                source = "fallback",
+            )
+            else -> HeardPhraseAnalysis(
+                heardPhrase = if (phrase.isNotBlank()) phrase else "काम चालू आहे",
+                meaningL1 = "कार्यस्थल पर काम संबंधी निर्देश या बातचीत की जा रही है।",
+                toneIntent = "सूचना / Workplace Instruction",
+                importantWords = listOf(
+                    WordMeaning("काम", "काम / work"),
+                    WordMeaning("समजले", "समझ में आया / understood"),
+                ),
+                suggestedReplyL2 = "हो, समजले. मी लगेच करतो.",
+                replyMeaningL1 = "हाँ, समझ गया। मैं तुरंत करता हूँ।",
+                replyRoman = "ho, samajle. mee lagech karto",
+                source = "fallback",
+            )
+        }
+    }
+
+    // --------------------------------------------------------------------------
     // Pronunciation scoring — always deterministic, Gemma never touches this
     // --------------------------------------------------------------------------
 

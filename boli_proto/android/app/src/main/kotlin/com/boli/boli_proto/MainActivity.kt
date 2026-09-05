@@ -28,8 +28,7 @@ class MainActivity : FlutterActivity() {
 
     private val asr by lazy { OnnxAsr(applicationContext) }
 
-    // FastPitch replaces Piper (OnnxTts.kt — kept, unused, reachable by
-    // swapping this one line back if FastPitch does not hold up on device).
+    // Canonical on-device speech synthesis via AI4Bharat FastPitch + HiFi-GAN (22.05 kHz).
     private val tts by lazy { FastPitchTts(applicationContext) }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

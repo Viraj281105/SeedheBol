@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'daily_mission_screen.dart';
 import 'data.dart';
 import 'practice_screen.dart';
 import 'progress_screen.dart';
@@ -498,6 +499,109 @@ class _TodayScreenState extends State<TodayScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
               children: [
+                // ---- Hero: Daily Mission Card ----
+                Container(
+                  margin: const EdgeInsets.only(bottom: 20),
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Boli.paper,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Boli.marigold.withValues(alpha: 0.4), width: 1.5),
+                    boxShadow: Boli.lift(y: 4, blur: 14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Boli.marigold.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.flash_on_rounded, size: 14, color: Boli.terracotta),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'आजचे मिशन · DAILY MISSION',
+                                  style: Boli.label(color: Boli.terracotta, size: 10.5),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Boli.leaf.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '2–3 min loop',
+                              style: Boli.body(11, weight: FontWeight.w700, color: Boli.leaf),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'आजचे वैयक्तिक आव्हान',
+                        style: Boli.head(18, weight: 700),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Personalized workplace mission based on your vocabulary, pronunciation & ${widget.job.title} scenarios.',
+                        style: Boli.body(13, color: Boli.inkSoft),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Row(
+                              children: [
+                                const Icon(Icons.psychology_outlined, size: 16, color: Boli.terracotta),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Gemma 3n · IndicConformer · FastPitch',
+                                    style: Boli.body(11.5, color: Boli.inkSoft),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => DailyMissionScreen(
+                                    job: widget.job,
+                                    l1: widget.l1,
+                                    l2: widget.l2,
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                            label: const Text('सुरू करा'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Boli.terracotta,
+                              foregroundColor: Boli.cream,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              textStyle: Boli.body(13, weight: FontWeight.w700),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
                 const SectionHead('WHAT YOU CAN HANDLE'),
                 for (int i = 0; i < vis.length; i++)
                   SituationCard(

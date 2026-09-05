@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'camera_lesson_screen.dart';
 import 'data.dart';
+import 'listen_around_screen.dart';
 import 'roleplay_screen.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -113,6 +114,13 @@ class _ToolCard extends StatelessWidget {
           // Camera → OCR → Gemma → MicroLesson
           Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const CameraLessonScreen()),
+          );
+        } else if (index == 1) {
+          // Listen around me — Gemma + IndicConformer + FastPitch
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const ListenAroundScreen(),
+            ),
           );
         } else if (index == 2) {
           // Roleplay conversation — Gemma-powered

@@ -363,6 +363,56 @@ class BoliAiLayer(
         return AiResponse(fallback, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
     }
 
+    /**
+     * Synthesizes a daily workplace challenge customized to the learner's profile.
+     */
+    suspend fun generateDailyMission(
+        ctx: GemmaContext,
+    ): AiResponse<DailyMission> {
+        val t0 = System.currentTimeMillis()
+        if (gemma.isAvailable) {
+            val prompt = GemmaPromptBuilder.buildDailyMissionPrompt(ctx)
+            val raw = gemma.generate(prompt, temperature = 0.5f)
+            if (!raw.isNullOrBlank()) {
+                val parsed = parseDailyMission(raw, ctx)
+                if (parsed != null) {
+                    return AiResponse(parsed, AiSource.GEMMA, System.currentTimeMillis() - t0)
+                }
+            }
+        }
+        val fallback = deterministic.generateDailyMission(ctx)
+        return AiResponse(fallback, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
+    }
+
+    /**
+     * Analyzes an overheard or repeated workplace phrase in [ctx.l2],
+     * returning meaning, tone/intent, key vocabulary, and an actionable natural reply.
+     */
+    suspend fun analyzeHeardPhrase(
+        phrase: String,
+        ctx: GemmaContext,
+    ): AiResponse<HeardPhraseAnalysis> {
+        val t0 = System.currentTimeMillis()
+        val cleanedPhrase = phrase.trim()
+        if (cleanedPhrase.isBlank()) {
+            val emptyFallback = deterministic.analyzeHeardPhrase(cleanedPhrase, ctx)
+            return AiResponse(emptyFallback, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
+        }
+
+        if (gemma.isAvailable) {
+            val prompt = GemmaPromptBuilder.buildListenAroundPrompt(cleanedPhrase, ctx)
+            val raw = gemma.generate(prompt, temperature = 0.4f)
+            if (!raw.isNullOrBlank()) {
+                val parsed = parseHeardPhraseAnalysis(raw, cleanedPhrase, ctx)
+                if (parsed != null) {
+                    return AiResponse(parsed, AiSource.GEMMA, System.currentTimeMillis() - t0)
+                }
+            }
+        }
+        val fallback = deterministic.analyzeHeardPhrase(cleanedPhrase, ctx)
+        return AiResponse(fallback, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
+    }
+
     // -------------------------------------------------------------------------
     // Resilient response parsers — tolerant of markdown, spacing, and delimiter drift
     // -------------------------------------------------------------------------
@@ -418,6 +468,65 @@ class BoliAiLayer(
             vocabulary = vocab,
             practicePrompt = practice,
             translation = translation,
+            source = "gemma",
+        )
+    }
+
+    private fun parseDailyMission(raw: String, ctx: GemmaContext): DailyMission? {
+        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val title = findTagValue(lines, "TITLE") ?: return null
+        val nativeTitle = findTagValue(lines, "NATIVE_TITLE|MARATHI_TITLE") ?: title
+        val npcRole = findTagValue(lines, "NPC_ROLE|ROLE|PERSONA") ?: "Supervisor"
+        val objective = findTagValue(lines, "OBJECTIVE|GOAL") ?: "Complete the workplace conversation."
+        val objectiveNative = findTagValue(lines, "OBJECTIVE_NATIVE|GOAL_NATIVE") ?: objective
+        val openerL2 = findTagValue(lines, "OPENER_L2|OPENER|FIRST_TURN") ?: "काम कसे चालले आहे?"
+        val openerL1 = findTagValue(lines, "OPENER_L1|OPENER_MEANING") ?: "काम कैसा चल रहा है?"
+        val targetWordsStr = findTagValue(lines, "TARGET_WORDS|WORDS") ?: ""
+        val targetWords = targetWordsStr.split(",", ";").map { it.trim() }.filter { it.isNotBlank() }
+        val maxTurns = findTagValue(lines, "MAX_TURNS|TURNS")?.toIntOrNull() ?: 4
+
+        return DailyMission(
+            title = title,
+            nativeTitle = nativeTitle,
+            npcRole = npcRole,
+            objective = objective,
+            objectiveNative = objectiveNative,
+            openerL2 = openerL2,
+            openerL1 = openerL1,
+            targetWords = if (targetWords.isNotEmpty()) targetWords else ctx.frequentlyMissedWords.take(3),
+            maxTurns = maxTurns.coerceIn(3, 5),
+            source = "gemma",
+        )
+    }
+
+    private fun parseHeardPhraseAnalysis(raw: String, phrase: String, ctx: GemmaContext): HeardPhraseAnalysis? {
+        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val meaning = findTagValue(lines, "MEANING|TRANSLATION|HINDI_MEANING") ?: return null
+        val tone = findTagValue(lines, "TONE_INTENT|TONE|INTENT") ?: "सूचना / Instruction"
+        val wordsRaw = findTagValue(lines, "IMPORTANT_WORDS|WORDS|VOCAB") ?: ""
+        val replyL2 = findTagValue(lines, "NATURAL_REPLY|REPLY|REPLY_L2") ?: "हो, समजले."
+        val replyL1 = findTagValue(lines, "REPLY_NATIVE|REPLY_L1|REPLY_MEANING") ?: "हाँ, समझ गया।"
+        val replyRoman = findTagValue(lines, "REPLY_ROMAN|ROMAN") ?: ""
+
+        val wordList = mutableListOf<WordMeaning>()
+        if (wordsRaw.isNotBlank()) {
+            val pairs = wordsRaw.split(";", ",")
+            for (p in pairs) {
+                val parts = p.split("=", ":", "-").map { it.trim() }
+                if (parts.size >= 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
+                    wordList.add(WordMeaning(parts[0], parts[1]))
+                }
+            }
+        }
+
+        return HeardPhraseAnalysis(
+            heardPhrase = phrase,
+            meaningL1 = meaning,
+            toneIntent = tone,
+            importantWords = wordList,
+            suggestedReplyL2 = replyL2,
+            replyMeaningL1 = replyL1,
+            replyRoman = replyRoman,
             source = "gemma",
         )
     }
