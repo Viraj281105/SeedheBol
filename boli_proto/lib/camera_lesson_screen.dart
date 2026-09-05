@@ -1,22 +1,22 @@
+import 'dart:math' as math;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
-/// Camera → OCR → Gemma → MicroLesson → TTS
+/// Camera → Understand → Learn
 ///
-/// This screen implements the primary demo flow described in the architecture:
-///   1. CameraX live preview via [camera] Flutter plugin
-///   2. Capture still → JPEG bytes → 'extractTextFromImage' platform channel
-///   3. OCR text → 'generateLessonFromOcr' → [_MicroLessonCard]
-///   4. Tap "Listen" on lesson or vocab word → 'speak' (FastPitch TTS)
-///
-/// The [_AiBadge] in the lesson card shows "GEMMA" or "FALLBACK" so the demo
-/// audience can see which backend produced the response.
-///
-/// If the device has no camera or permission is denied, a graceful error state
-/// is shown rather than crashing.
+/// Hero feature flow for SeedheBol:
+///   1. Camera Viewfinder: High-contrast framing guide designed for Indian signboards.
+///   2. ML Kit OCR: Detects Devanagari, Latin, and regional text on-device.
+///   3. Gemma 3n E2B:
+///      - Contextual Translation: Translated to worker's L1 (e.g. Hindi/Bhojpuri).
+///      - Workplace Explanation: Why this sign matters on the job.
+///      - "LEARN THIS" Vocabulary: 3–5 key words with L2 text, Roman pronunciation, and L1 meaning.
+///   4. 🔊 Listen (TTS): Immediate on-device speech playback for every word and sentence.
+///   5. 🎤 "Now say it" Voice Practice: Real-time on-device ASR microphone capture with
+///      phonetic similarity scoring and encouraging readiness feedback.
 class CameraLessonScreen extends StatefulWidget {
   const CameraLessonScreen({super.key});
 
@@ -109,11 +109,11 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
     HapticFeedback.mediumImpact();
 
     try {
-      // 1. Capture JPEG
+      // 1. Capture picture from CameraX
       final file = await cam.takePicture();
       final bytes = await file.readAsBytes();
 
-      // 2. Run OCR
+      // 2. Run on-device ML Kit OCR
       final lines = await _engineChannel.invokeListMethod<String>(
         'extractTextFromImage',
         {'image_bytes': Uint8List.fromList(bytes)},
@@ -125,12 +125,14 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
         _ocrText = rawText;
         _scanning = false;
         _generatingLesson = rawText.isNotEmpty;
-        _lessonError = rawText.isEmpty ? 'No text detected. Try pointing at a sign or label.' : '';
+        _lessonError = rawText.isEmpty
+            ? 'पाटीवर मजकूर आढळला नाही. पाटी व्यवस्थित फ्रेममध्ये धरा.\n(No text detected on signboard. Hold steady inside frame.)'
+            : '';
       });
 
       if (rawText.isEmpty) return;
 
-      // 3. Generate lesson from OCR text via Gemma / fallback
+      // 3. Generate structured lesson via Gemma 3n E2B (or deterministic fallback)
       final lessonMap = await _engineChannel.invokeMapMethod<String, dynamic>(
         'generateLessonFromOcr',
         {'ocr_text': rawText},
@@ -138,14 +140,18 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
 
       if (!mounted) return;
       if (lessonMap != null) {
+        final lesson = _LessonData.fromMap(lessonMap);
         setState(() {
-          _lesson = _LessonData.fromMap(lessonMap);
+          _lesson = lesson;
           _generatingLesson = false;
         });
-        // 4. Auto-play the practice prompt via FastPitch TTS
-        final prompt = lessonMap['practice_prompt'] as String? ?? '';
-        if (prompt.isNotEmpty) {
-          _speak(prompt);
+
+        // 4. Auto-play the practice prompt or topic via FastPitch TTS
+        final speechText = lesson.practicePrompt.isNotEmpty
+            ? lesson.practicePrompt
+            : (lesson.vocabulary.isNotEmpty ? lesson.vocabulary.first.l2Word : lesson.topic);
+        if (speechText.isNotEmpty) {
+          _speak(speechText);
         }
       }
     } on PlatformException catch (e) {
@@ -153,7 +159,7 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
       setState(() {
         _scanning = false;
         _generatingLesson = false;
-        _lessonError = e.message ?? 'Something went wrong. Try again.';
+        _lessonError = e.message ?? 'कॅमेरा प्रक्रिया अयशस्वी झाली. पुन्हा प्रयत्न करा.';
       });
     }
   }
@@ -163,7 +169,7 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
     try {
       await _asrChannel.invokeMethod<String>('speak', {'text': text});
     } on PlatformException {
-      // Missing phrase in TTS vocab — not worth surfacing as error
+      // Offline fallback phrase missing in synth vocab is non-fatal
     }
   }
 
@@ -187,8 +193,9 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
   }
 
   Widget _buildAppBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 16, 4),
+    return Container(
+      color: Boli.ink,
+      padding: const EdgeInsets.fromLTRB(8, 8, 16, 6),
       child: Row(
         children: [
           IconButton(
@@ -199,18 +206,25 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Point & Learn', style: Boli.head(20, weight: 700, color: Boli.cream)),
+              Text('Camera · Understand · Learn', style: Boli.head(19, weight: 700, color: Boli.cream)),
               Text(
-                'Point at any text to get a lesson',
-                style: Boli.body(13, color: Boli.cream.withValues(alpha: .6)),
+                'पाटी वाचा आणि बोलायला शिका · Point & Speak',
+                style: Boli.body(12.5, color: Boli.cream.withValues(alpha: .7)),
               ),
             ],
           ),
           const Spacer(),
           if (!_scanning && !_generatingLesson && _lesson != null)
-            GestureDetector(
-              onTap: () => setState(() => _lesson = null),
-              child: const Icon(Icons.refresh_rounded, color: Boli.cream, size: 26),
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded, color: Boli.marigold, size: 26),
+              tooltip: 'Scan another sign',
+              onPressed: () {
+                setState(() {
+                  _lesson = null;
+                  _ocrText = '';
+                  _lessonError = '';
+                });
+              },
             ),
         ],
       ),
@@ -220,56 +234,59 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
   Widget _buildBody() {
     return Stack(
       children: [
-        // Camera preview fills the screen
+        // Camera preview
         if (_cameraReady && _camera != null)
           Positioned.fill(child: CameraPreview(_camera!)),
 
-        // Loading overlay
-        if (_scanning || _generatingLesson)
-          _ScanningOverlay(
-            message: _scanning ? 'Reading text…' : 'Generating lesson…',
+        // Framing guide overlay when waiting for capture
+        if (_lesson == null && !_scanning && !_generatingLesson)
+          Positioned.fill(
+            child: _ViewfinderOverlay(),
           ),
 
-        // OCR hint text strip (shown after scan, before lesson ready)
-        if (_ocrText.isNotEmpty && _lesson == null && !_generatingLesson)
-          Positioned(
-            top: 12,
-            left: 16,
-            right: 16,
-            child: _OcrTextBadge(text: _ocrText),
+        // Scanning / Generating overlay
+        if (_scanning || _generatingLesson)
+          _ScanningOverlay(
+            message: _scanning
+                ? 'पाटी वाचत आहे… (Reading text…)'
+                : 'Gemma अर्थ समजावून सांगत आहे…\n(Understanding sign & creating lesson…)',
           ),
 
         // Error message
-        if (_lessonError.isNotEmpty)
+        if (_lessonError.isNotEmpty && _lesson == null)
           Positioned(
-            top: 12,
+            top: 16,
             left: 16,
             right: 16,
             child: _ErrorBadge(message: _lessonError),
           ),
 
-        // Lesson card — shown at bottom when ready
-        if (_lesson != null)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _MicroLessonCard(
-              lesson: _lesson!,
-              onSpeak: _speak,
-            ),
-          ),
-
         // Capture button — bottom-centre when no lesson showing
         if (_lesson == null && !_scanning && !_generatingLesson)
           Positioned(
-            bottom: 32,
+            bottom: 28,
             left: 0,
             right: 0,
             child: Center(
               child: _CaptureButton(
                 onTap: _cameraReady ? _captureAndProcess : null,
               ),
+            ),
+          ),
+
+        // Hero Lesson Sheet — when lesson is ready
+        if (_lesson != null)
+          Positioned.fill(
+            child: _HeroLessonSheet(
+              lesson: _lesson!,
+              ocrText: _ocrText,
+              onSpeak: _speak,
+              onRescan: () {
+                setState(() {
+                  _lesson = null;
+                  _ocrText = '';
+                });
+              },
             ),
           ),
       ],
@@ -279,20 +296,23 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
   String _friendlyCameraError(String code) {
     switch (code) {
       case 'CameraAccessDenied':
-        return 'Camera access denied. Allow it in Settings → Apps → SeedheBol.';
+        return 'कॅमेरा परवानगी नाकारली. कृपया फोन सेटिंग्जमध्ये परवानगी द्या.\n(Camera access denied in Settings).';
       case 'CameraAccessDeniedWithoutPrompt':
-        return 'Camera access blocked. Enable it in device Settings.';
+        return 'कॅमेरा परवानगी बंद आहे. कृपया सेटिंग्जमधून चालू करा.';
       default:
-        return 'Camera unavailable ($code).';
+        return 'कॅमेरा सुरू करता आला नाही ($code).';
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Data
+// Data Models
+// ---------------------------------------------------------------------------
 
 class _VocabItem {
-  final String l2Word, l1Meaning, romanization;
+  final String l2Word;
+  final String l1Meaning;
+  final String romanization;
   const _VocabItem({
     required this.l2Word,
     required this.l1Meaning,
@@ -301,12 +321,17 @@ class _VocabItem {
 }
 
 class _LessonData {
-  final String topic, explanation, practicePrompt, source;
+  final String topic;
+  final String translation;
+  final String explanation;
+  final String practicePrompt;
+  final String source;
   final List<_VocabItem> vocabulary;
   final int latencyMs;
 
   const _LessonData({
     required this.topic,
+    required this.translation,
     required this.explanation,
     required this.practicePrompt,
     required this.vocabulary,
@@ -330,6 +355,7 @@ class _LessonData {
 
     return _LessonData(
       topic: map['topic'] as String? ?? '',
+      translation: map['translation'] as String? ?? '',
       explanation: map['explanation'] as String? ?? '',
       practicePrompt: map['practice_prompt'] as String? ?? '',
       vocabulary: vocab,
@@ -340,7 +366,795 @@ class _LessonData {
 }
 
 // ---------------------------------------------------------------------------
-// Widgets
+// Viewfinder Overlay
+// ---------------------------------------------------------------------------
+
+class _ViewfinderOverlay extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final boxW = constraints.maxWidth * 0.84;
+        final boxH = boxW * 0.58;
+
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            // Framing reticle box
+            Container(
+              width: boxW,
+              height: boxH,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Boli.marigold.withValues(alpha: .75), width: 2.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: .35),
+                    blurRadius: 16,
+                  ),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  // Corner brackets
+                  Positioned(
+                    top: -1,
+                    left: -1,
+                    child: _CornerBracket(isTop: true, isLeft: true),
+                  ),
+                  Positioned(
+                    top: -1,
+                    right: -1,
+                    child: _CornerBracket(isTop: true, isLeft: false),
+                  ),
+                  Positioned(
+                    bottom: -1,
+                    left: -1,
+                    child: _CornerBracket(isTop: false, isLeft: true),
+                  ),
+                  Positioned(
+                    bottom: -1,
+                    right: -1,
+                    child: _CornerBracket(isTop: false, isLeft: false),
+                  ),
+                ],
+              ),
+            ),
+
+            // Instructional banner above frame
+            Positioned(
+              top: constraints.maxHeight * 0.16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Boli.ink.withValues(alpha: .85),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Boli.sand.withValues(alpha: .4)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.crop_free_rounded, color: Boli.marigold, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'पाटी किंवा फलक चौकटीत धरा · Frame the sign',
+                      style: Boli.body(13, color: Boli.cream, weight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CornerBracket extends StatelessWidget {
+  final bool isTop;
+  final bool isLeft;
+  const _CornerBracket({required this.isTop, required this.isLeft});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        border: Border(
+          top: isTop ? const BorderSide(color: Boli.cream, width: 4.5) : BorderSide.none,
+          bottom: !isTop ? const BorderSide(color: Boli.cream, width: 4.5) : BorderSide.none,
+          left: isLeft ? const BorderSide(color: Boli.cream, width: 4.5) : BorderSide.none,
+          right: !isLeft ? const BorderSide(color: Boli.cream, width: 4.5) : BorderSide.none,
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hero Lesson Sheet: Understand → Learn This → Now Say It
+// ---------------------------------------------------------------------------
+
+class _HeroLessonSheet extends StatefulWidget {
+  final _LessonData lesson;
+  final String ocrText;
+  final Future<void> Function(String) onSpeak;
+  final VoidCallback onRescan;
+
+  const _HeroLessonSheet({
+    required this.lesson,
+    required this.ocrText,
+    required this.onSpeak,
+    required this.onRescan,
+  });
+
+  @override
+  State<_HeroLessonSheet> createState() => _HeroLessonSheetState();
+}
+
+class _HeroLessonSheetState extends State<_HeroLessonSheet> {
+  static const _asrChannel = MethodChannel('boli/asr');
+
+  // Practice state
+  String _activeTarget = '';
+  String _activeRoman = '';
+  String _activeMeaning = '';
+  bool _micBusy = false;
+  String _heard = '';
+  double _score = 0.0;
+  String _micError = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Default practice target: the first vocabulary word or the practice prompt
+    if (widget.lesson.vocabulary.isNotEmpty) {
+      final first = widget.lesson.vocabulary.first;
+      _activeTarget = first.l2Word;
+      _activeRoman = first.romanization;
+      _activeMeaning = first.l1Meaning;
+    } else if (widget.lesson.practicePrompt.isNotEmpty) {
+      _activeTarget = widget.lesson.practicePrompt;
+      _activeRoman = '';
+      _activeMeaning = widget.lesson.translation;
+    } else {
+      _activeTarget = widget.lesson.topic;
+    }
+  }
+
+  void _selectPracticeTarget(String target, String roman, String meaning) {
+    setState(() {
+      _activeTarget = target;
+      _activeRoman = roman;
+      _activeMeaning = meaning;
+      _heard = '';
+      _score = 0.0;
+      _micError = '';
+    });
+    widget.onSpeak(target);
+  }
+
+  double _calculateSimilarity(String a, String b) {
+    String norm(String s) => s.replaceAll(RegExp(r'[\s।,.?!]'), '').toLowerCase();
+    final x = norm(a), y = norm(b);
+    if (x.isEmpty || y.isEmpty) return 0.0;
+    final d = List.generate(
+      x.length + 1,
+      (_) => List<int>.filled(y.length + 1, 0),
+    );
+    for (var i = 0; i <= x.length; i++) {
+      d[i][0] = i;
+    }
+    for (var j = 0; j <= y.length; j++) {
+      d[0][j] = j;
+    }
+    for (var i = 1; i <= x.length; i++) {
+      for (var j = 1; j <= y.length; j++) {
+        final cost = x[i - 1] == y[j - 1] ? 0 : 1;
+        d[i][j] = math.min(
+          math.min(d[i - 1][j] + 1, d[i][j - 1] + 1),
+          d[i - 1][j - 1] + cost,
+        );
+      }
+    }
+    final maxLen = math.max(x.length, y.length);
+    return maxLen == 0 ? 0.0 : (1.0 - d[x.length][y.length] / maxLen).clamp(0.0, 1.0);
+  }
+
+  Future<void> _startVoicePractice() async {
+    if (_micBusy || _activeTarget.isEmpty) return;
+
+    setState(() {
+      _micBusy = true;
+      _heard = '';
+      _micError = '';
+    });
+    HapticFeedback.selectionClick();
+
+    try {
+      final text = await _asrChannel.invokeMethod<String>('transcribeMic', {
+        'seconds': 4.0,
+      }) ?? '';
+
+      if (!mounted) return;
+      final sim = _calculateSimilarity(text, _activeTarget);
+
+      if (sim >= 0.70) {
+        HapticFeedback.heavyImpact();
+      } else if (sim >= 0.40) {
+        HapticFeedback.mediumImpact();
+      } else {
+        HapticFeedback.lightImpact();
+      }
+
+      setState(() {
+        _heard = text.isEmpty ? '—' : text;
+        _score = sim;
+        _micBusy = false;
+      });
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _micBusy = false;
+        _micError = e.message ?? 'मायक्रोफोन उपलब्ध नाही (Microphone error)';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveTranslation = widget.lesson.translation.isNotEmpty
+        ? widget.lesson.translation
+        : widget.lesson.explanation;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.82,
+      minChildSize: 0.40,
+      maxChildSize: 0.96,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: Boli.paper,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: .4),
+                blurRadius: 28,
+                offset: const Offset(0, -6),
+              ),
+            ],
+          ),
+          child: ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
+            children: [
+              // Sheet handle bar
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Boli.sand,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // 1. Signboard Header + AI Badge
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.lesson.topic,
+                          style: Boli.head(23, weight: 700),
+                        ),
+                        if (widget.ocrText.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Boli.cream,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Boli.sand),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.document_scanner_rounded, size: 14, color: Boli.inkSoft),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    widget.ocrText.replaceAll('\n', ' · '),
+                                    style: Boli.body(12, color: Boli.inkSoft, weight: FontWeight.w600),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _AiBadge(source: widget.lesson.source, latencyMs: widget.lesson.latencyMs),
+                ],
+              ),
+              const SizedBox(height: 18),
+
+              // 2. UNDERSTAND: Contextual Translation & Meaning
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: Boli.card(fill: Boli.cream),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.g_translate_rounded, size: 17, color: Boli.peacock),
+                        const SizedBox(width: 8),
+                        Text('UNDERSTAND · अर्थ', style: Boli.label(color: Boli.peacock, size: 11)),
+                        const Spacer(),
+                        InkWell(
+                          onTap: () => widget.onSpeak(effectiveTranslation),
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Boli.peacock.withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.volume_up_rounded, size: 15, color: Boli.peacock),
+                                const SizedBox(width: 4),
+                                Text('Listen', style: Boli.label(color: Boli.peacock, size: 10)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      effectiveTranslation,
+                      style: Boli.head(20, weight: 700, color: Boli.ink),
+                    ),
+                    if (widget.lesson.explanation.isNotEmpty &&
+                        widget.lesson.explanation != effectiveTranslation) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.lesson.explanation,
+                        style: Boli.body(14.5, color: Boli.inkSoft, height: 1.45),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 22),
+
+              // Handloom Border divider
+              const HandloomBorder(color: Boli.terracotta, height: 9),
+              const SizedBox(height: 18),
+
+              // 3. "LEARN THIS" Vocabulary Section
+              Row(
+                children: [
+                  const Icon(Icons.school_rounded, color: Boli.terracotta, size: 18),
+                  const SizedBox(width: 8),
+                  Text('LEARN THIS', style: Boli.label(color: Boli.terracotta, size: 12)),
+                  const SizedBox(width: 8),
+                  Text('— महत्त्वाचे शब्द (3–5 Useful Words)', style: Boli.body(13, color: Boli.inkSoft, weight: FontWeight.w600)),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Vocabulary word tiles
+              if (widget.lesson.vocabulary.isNotEmpty)
+                ...widget.lesson.vocabulary.map((vocab) {
+                  final isSelected = _activeTarget == vocab.l2Word;
+                  return _WordTile(
+                    item: vocab,
+                    isSelected: isSelected,
+                    onListen: () => widget.onSpeak(vocab.l2Word),
+                    onSelectPractice: () => _selectPracticeTarget(
+                      vocab.l2Word,
+                      vocab.romanization,
+                      vocab.l1Meaning,
+                    ),
+                  );
+                })
+              else
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: Boli.card(fill: Boli.cream),
+                  child: Text(
+                    'या पाटीतील शब्द समजून घ्या आणि सरावासाठी माईक वापरा.',
+                    style: Boli.body(14, color: Boli.inkSoft),
+                  ),
+                ),
+
+              const SizedBox(height: 22),
+
+              // Handloom Border divider
+              const HandloomBorder(color: Boli.peacock, height: 9),
+              const SizedBox(height: 18),
+
+              // 4. "NOW SAY IT" Voice Practice (Interactive Pronunciation Trainer)
+              _VoicePracticeCard(
+                targetWord: _activeTarget,
+                romanization: _activeRoman,
+                meaning: _activeMeaning,
+                busy: _micBusy,
+                heard: _heard,
+                score: _score,
+                error: _micError,
+                onListen: () => widget.onSpeak(_activeTarget),
+                onMicTap: _startVoicePractice,
+              ),
+
+              const SizedBox(height: 20),
+
+              // Rescan Button
+              OutlinedButton.icon(
+                onPressed: widget.onRescan,
+                icon: const Icon(Icons.camera_alt_outlined, color: Boli.inkSoft),
+                label: Text('दुसरी पाटी स्कॅन करा (Scan another sign)', style: Boli.body(15, color: Boli.inkSoft, weight: FontWeight.w600)),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(56),
+                  side: const BorderSide(color: Boli.sand, width: 1.5),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Word Tile with 🔊 Listen and 🎤 Say It buttons
+// ---------------------------------------------------------------------------
+
+class _WordTile extends StatelessWidget {
+  final _VocabItem item;
+  final bool isSelected;
+  final VoidCallback onListen;
+  final VoidCallback onSelectPractice;
+
+  const _WordTile({
+    required this.item,
+    required this.isSelected,
+    required this.onListen,
+    required this.onSelectPractice,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isSelected ? Boli.marigold.withValues(alpha: .12) : Boli.paper,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isSelected ? Boli.marigold : Boli.sand,
+          width: isSelected ? 2.2 : 1.5,
+        ),
+      ),
+      child: Row(
+        children: [
+          // Word & Meaning
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      item.l2Word,
+                      style: Boli.head(21, weight: 700, color: Boli.ink),
+                    ),
+                    if (item.romanization.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Boli.peacock.withValues(alpha: .1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          item.romanization,
+                          style: Boli.body(12, color: Boli.peacock, weight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'अर्थ: ${item.l1Meaning}',
+                  style: Boli.body(14, color: Boli.inkSoft, weight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+
+          // 🔊 Listen Button
+          IconButton(
+            icon: const Icon(Icons.volume_up_rounded, color: Boli.peacock, size: 24),
+            tooltip: 'Listen to word',
+            onPressed: onListen,
+          ),
+
+          // 🎤 "Say it" Button
+          InkWell(
+            onTap: onSelectPractice,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? Boli.marigold : Boli.cream,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Boli.marigold),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.mic_rounded,
+                    size: 16,
+                    color: isSelected ? Boli.ink : Boli.marigold,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Say it',
+                    style: Boli.label(
+                      color: isSelected ? Boli.ink : Boli.marigold,
+                      size: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// "NOW SAY IT" Voice Practice Card with Real-time Scoring
+// ---------------------------------------------------------------------------
+
+class _VoicePracticeCard extends StatelessWidget {
+  final String targetWord;
+  final String romanization;
+  final String meaning;
+  final bool busy;
+  final String heard;
+  final double score;
+  final String error;
+  final VoidCallback onListen;
+  final VoidCallback onMicTap;
+
+  const _VoicePracticeCard({
+    required this.targetWord,
+    required this.romanization,
+    required this.meaning,
+    required this.busy,
+    required this.heard,
+    required this.score,
+    required this.error,
+    required this.onListen,
+    required this.onMicTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: Boli.card(fill: Boli.cream),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Section Title
+          Row(
+            children: [
+              const Icon(Icons.mic_rounded, color: Boli.indigo, size: 18),
+              const SizedBox(width: 8),
+              Text('NOW SAY IT · आता बोलून बघा', style: Boli.label(color: Boli.indigo, size: 12)),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Target word prompt box
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Boli.paper,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Boli.sand),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        targetWord,
+                        style: Boli.head(22, weight: 700, color: Boli.ink),
+                      ),
+                      if (romanization.isNotEmpty)
+                        Text(
+                          romanization,
+                          style: Boli.body(13, color: Boli.peacock, weight: FontWeight.w700),
+                        ),
+                      if (meaning.isNotEmpty)
+                        Text(
+                          meaning,
+                          style: Boli.body(13.5, color: Boli.inkSoft),
+                        ),
+                    ],
+                  ),
+                ),
+                // 🔊 "Listen first"
+                IconButton.filledTonal(
+                  icon: const Icon(Icons.volume_up_rounded, color: Boli.peacock, size: 22),
+                  tooltip: 'Listen to pronunciation',
+                  onPressed: onListen,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Mic Button
+          Center(
+            child: MicButton(
+              busy: busy,
+              size: 80,
+              onTap: busy ? null : onMicTap,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Instructions / Status
+          Center(
+            child: Text(
+              busy
+                  ? 'ऐकत आहे… मोठ्याने बोला (Listening…)'
+                  : (error.isNotEmpty
+                      ? error
+                      : 'माईक दाबा आणि हा शब्द बोला (Tap mic & say it)'),
+              style: Boli.body(
+                14,
+                weight: FontWeight.w700,
+                color: error.isNotEmpty ? Boli.madder : Boli.inkSoft,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+
+          // Pronunciation Feedback Panel
+          if (heard.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            _PronunciationFeedbackPanel(
+              heard: heard,
+              target: targetWord,
+              score: score,
+              onReListen: onListen,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pronunciation Feedback Panel
+// ---------------------------------------------------------------------------
+
+class _PronunciationFeedbackPanel extends StatelessWidget {
+  final String heard;
+  final String target;
+  final double score;
+  final VoidCallback onReListen;
+
+  const _PronunciationFeedbackPanel({
+    required this.heard,
+    required this.target,
+    required this.score,
+    required this.onReListen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isGood = score >= 0.70;
+    final isMid = score >= 0.40 && score < 0.70;
+
+    final badgeColor = isGood ? Boli.leaf : (isMid ? Boli.marigold : Boli.terracotta);
+    final feedbackText = isGood
+        ? 'उत्कृष्ट उच्चार! (Great pronunciation! 🎯)'
+        : (isMid
+            ? 'जवळपास बरोबर! पुन्हा प्रयत्न करा (Almost there! 🔁)'
+            : 'पुन्हा ऐका आणि प्रयत्न करा (Listen again, then speak 🔊)');
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Boli.paper,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: badgeColor, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isGood ? Icons.check_circle_rounded : (isMid ? Icons.auto_awesome_rounded : Icons.info_outline_rounded),
+                size: 18,
+                color: badgeColor,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                feedbackText,
+                style: Boli.body(13.5, weight: FontWeight.w800, color: badgeColor),
+              ),
+              const Spacer(),
+              Text(
+                '${(score * 100).round()}% match',
+                style: Boli.head(15, weight: 700, color: badgeColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'फोनने ऐकले (Heard): "$heard"',
+            style: Boli.head(19, weight: 600, color: Boli.ink),
+          ),
+          if (!isGood) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'अपेक्षित उच्चार (Expected): "$target"',
+                    style: Boli.body(13.5, color: Boli.inkSoft, weight: FontWeight.w600),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: onReListen,
+                  icon: const Icon(Icons.volume_up_rounded, size: 16, color: Boli.peacock),
+                  label: Text('Listen', style: Boli.label(color: Boli.peacock, size: 11)),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Common Widgets
+// ---------------------------------------------------------------------------
 
 class _CaptureButton extends StatelessWidget {
   final VoidCallback? onTap;
@@ -352,19 +1166,20 @@ class _CaptureButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 76,
-        height: 76,
+        width: 78,
+        height: 78,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: enabled ? Boli.marigold : Boli.sand,
+          border: Border.all(color: Colors.white, width: 4.5),
           boxShadow: enabled
-              ? [BoxShadow(color: Boli.marigold.withValues(alpha: .4), blurRadius: 16, spreadRadius: 2)]
+              ? [BoxShadow(color: Boli.marigold.withValues(alpha: .45), blurRadius: 20, spreadRadius: 3)]
               : [],
         ),
         child: Icon(
           Icons.camera_alt_rounded,
           color: enabled ? Boli.ink : Boli.inkSoft,
-          size: 34,
+          size: 36,
         ),
       ),
     );
@@ -378,45 +1193,21 @@ class _ScanningOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Boli.ink.withValues(alpha: .65),
+      color: Boli.ink.withValues(alpha: .75),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(color: Boli.marigold, strokeWidth: 3),
-            const SizedBox(height: 16),
-            Text(message, style: Boli.body(17, color: Boli.cream, weight: FontWeight.w700)),
+            const CircularProgressIndicator(color: Boli.marigold, strokeWidth: 3.5),
+            const SizedBox(height: 20),
+            Text(
+              message,
+              style: Boli.body(16.5, color: Boli.cream, weight: FontWeight.w700),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _OcrTextBadge extends StatelessWidget {
-  final String text;
-  const _OcrTextBadge({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Boli.ink.withValues(alpha: .85),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Boli.sand.withValues(alpha: .4)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.text_snippet_rounded, color: Boli.marigold, size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text.length > 80 ? '${text.substring(0, 80)}…' : text,
-              style: Boli.body(13, color: Boli.cream.withValues(alpha: .9)),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -431,14 +1222,17 @@ class _ErrorBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Boli.madder.withValues(alpha: .9),
-        borderRadius: BorderRadius.circular(12),
+        color: Boli.madder.withValues(alpha: .95),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: .25), blurRadius: 10),
+        ],
       ),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded, color: Boli.cream, size: 18),
+          const Icon(Icons.warning_amber_rounded, color: Boli.cream, size: 20),
           const SizedBox(width: 10),
-          Expanded(child: Text(message, style: Boli.body(14, color: Boli.cream))),
+          Expanded(child: Text(message, style: Boli.body(13.5, color: Boli.cream))),
         ],
       ),
     );
@@ -478,173 +1272,21 @@ class _AiBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final isGemma = source == 'gemma';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
         color: isGemma
             ? Boli.peacock.withValues(alpha: .15)
             : Boli.sand.withValues(alpha: .4),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: isGemma ? Boli.peacock.withValues(alpha: .4) : Boli.sand,
         ),
       ),
       child: Text(
-        isGemma ? 'GEMMA · ${latencyMs}ms' : 'OFFLINE FALLBACK',
+        isGemma ? 'GEMMA · ${latencyMs}ms' : 'OFFLINE',
         style: Boli.label(
-          size: 10,
+          size: 10.5,
           color: isGemma ? Boli.peacock : Boli.inkSoft,
-        ),
-      ),
-    );
-  }
-}
-
-class _MicroLessonCard extends StatelessWidget {
-  final _LessonData lesson;
-  final Future<void> Function(String) onSpeak;
-  const _MicroLessonCard({required this.lesson, required this.onSpeak});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Boli.paper,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: .35), blurRadius: 24, offset: const Offset(0, -4)),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Handle bar
-          Container(
-            margin: const EdgeInsets.only(top: 10),
-            width: 40,
-            height: 5,
-            decoration: BoxDecoration(
-              color: Boli.sand,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header: topic + AI badge
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        lesson.topic,
-                        style: Boli.head(21, weight: 700),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _AiBadge(source: lesson.source, latencyMs: lesson.latencyMs),
-                  ],
-                ),
-
-                if (lesson.explanation.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(lesson.explanation, style: Boli.body(15, height: 1.5)),
-                ],
-
-                // Vocabulary chips
-                if (lesson.vocabulary.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: lesson.vocabulary
-                        .map((v) => _VocabChip(item: v, onSpeak: onSpeak))
-                        .toList(),
-                  ),
-                ],
-
-                // Practice prompt with TTS
-                if (lesson.practicePrompt.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Boli.peacock.withValues(alpha: .08),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Boli.peacock.withValues(alpha: .25),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.record_voice_over_rounded,
-                            color: Boli.peacock, size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            lesson.practicePrompt,
-                            style: Boli.body(15, color: Boli.peacock, weight: FontWeight.w600),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => onSpeak(lesson.practicePrompt),
-                          child: const Icon(Icons.volume_up_rounded,
-                              color: Boli.peacock, size: 22),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _VocabChip extends StatelessWidget {
-  final _VocabItem item;
-  final Future<void> Function(String) onSpeak;
-  const _VocabChip({required this.item, required this.onSpeak});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => onSpeak(item.l2Word),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: Boli.cream,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Boli.sand, width: 1.5),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(item.l2Word,
-                    style: Boli.body(15, weight: FontWeight.w700)),
-                const SizedBox(width: 4),
-                const Icon(Icons.volume_up_rounded, size: 14, color: Boli.inkSoft),
-              ],
-            ),
-            if (item.romanization.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(item.romanization,
-                  style: Boli.body(12, color: Boli.inkSoft)
-                      .copyWith(fontStyle: FontStyle.italic)),
-            ],
-            const SizedBox(height: 2),
-            Text(item.l1Meaning,
-                style: Boli.body(13, color: Boli.inkSoft)),
-          ],
         ),
       ),
     );

@@ -67,6 +67,16 @@ class MlKitOcr {
      * Callers that already know the script can pass [preferredScript] to skip
      * the Devanagari attempt when Latin is expected.
      */
+    /**
+     * Recognizes text in [imageBytes] (JPEG or PNG, typical camera capture).
+     *
+     * Strategy:
+     *   1. Determine image orientation from EXIF metadata.
+     *   2. Try Devanagari first with correct rotation.
+     *   3. If Devanagari yields no text and rotation might be missing, try rotated passes.
+     *   4. Fall back to Latin recognizer.
+     *   5. If both are empty, return OcrResult with isEmpty=true.
+     */
     suspend fun recognizeBytes(
         imageBytes: ByteArray,
         preferredScript: Script = Script.DEVANAGARI,
@@ -76,23 +86,52 @@ class MlKitOcr {
                 Log.e(TAG, "Failed to decode image bytes into Bitmap")
             }
 
-        val image = InputImage.fromBitmap(bitmap, 0 /* rotation */)
+        // Extract EXIF orientation
+        val exifRotation = runCatching {
+            val exif = android.media.ExifInterface(java.io.ByteArrayInputStream(imageBytes))
+            when (exif.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+        }.getOrDefault(0)
 
-        return if (preferredScript == Script.DEVANAGARI) {
-            val devResult = runRecognizer(devanagariRecognizer, image)
-            val cleanDev = devResult.trim()
-            if (cleanDev.isNotEmpty()) {
-                Log.i(TAG, "Devanagari OCR: ${cleanDev.length} chars")
-                OcrResult(cleanDev, Script.DEVANAGARI, true)
+        Log.i(TAG, "recognizeBytes: image size=${bitmap.width}x${bitmap.height}, exifRotation=$exifRotation°")
+
+        if (preferredScript == Script.DEVANAGARI) {
+            // First attempt with EXIF rotation
+            var image = InputImage.fromBitmap(bitmap, exifRotation)
+            var devResult = runRecognizer(devanagariRecognizer, image).trim()
+
+            // If empty or negligible text, try other 90-degree rotations in case EXIF was absent or tilted
+            if (devResult.length < 3) {
+                val candidateRotations = listOf(90, 270, 180, 0).filter { it != exifRotation }
+                for (rot in candidateRotations) {
+                    val retryImage = InputImage.fromBitmap(bitmap, rot)
+                    val retryResult = runRecognizer(devanagariRecognizer, retryImage).trim()
+                    if (retryResult.length > devResult.length) {
+                        Log.i(TAG, "Devanagari OCR improved at rotation=$rot°: ${retryResult.length} chars")
+                        devResult = retryResult
+                        image = retryImage
+                        if (devResult.length >= 5) break
+                    }
+                }
+            }
+
+            if (devResult.isNotEmpty()) {
+                Log.i(TAG, "Devanagari OCR extracted [${devResult.length} chars]: \"${devResult.replace('\n', ' ')}\"")
+                return OcrResult(devResult, Script.DEVANAGARI, true)
             } else {
                 // Devanagari model found nothing; fall back to Latin
                 val latinResult = runRecognizer(latinRecognizer, image).trim()
-                Log.i(TAG, "Latin fallback OCR: ${latinResult.length} chars")
-                OcrResult(latinResult, Script.LATIN, latinResult.isNotEmpty())
+                Log.i(TAG, "Latin fallback OCR: ${latinResult.length} chars: \"${latinResult.replace('\n', ' ')}\"")
+                return OcrResult(latinResult, Script.LATIN, latinResult.isNotEmpty())
             }
         } else {
+            val image = InputImage.fromBitmap(bitmap, exifRotation)
             val latinResult = runRecognizer(latinRecognizer, image).trim()
-            OcrResult(latinResult, Script.LATIN, latinResult.isNotEmpty())
+            return OcrResult(latinResult, Script.LATIN, latinResult.isNotEmpty())
         }
     }
 

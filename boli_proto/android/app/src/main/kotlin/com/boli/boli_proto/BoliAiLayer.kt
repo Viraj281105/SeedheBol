@@ -53,8 +53,13 @@ class BoliAiLayer(
             val prompt = GemmaPromptBuilder.buildOcrLessonPrompt(ocrText, ctx)
             val raw = gemma.generate(prompt)
             if (raw != null) {
+                Log.i(TAG, "Gemma raw OCR lesson response:\n$raw")
                 val lesson = parseOcrLessonResponse(raw, ocrText)
-                return AiResponse(lesson, AiSource.GEMMA, System.currentTimeMillis() - t0)
+                if (lesson.explanation.isNotBlank() || lesson.vocabulary.isNotEmpty()) {
+                    return AiResponse(lesson, AiSource.GEMMA, System.currentTimeMillis() - t0)
+                } else {
+                    Log.w(TAG, "Gemma response lacks explanation/vocab, falling back to deterministic")
+                }
             }
         }
         // Gemma unavailable or failed
@@ -189,6 +194,8 @@ class BoliAiLayer(
         val lines = raw.lines().map { it.trim() }
         val topic = lines.firstOrNull { it.startsWith("TOPIC:") }
             ?.removePrefix("TOPIC:")?.trim() ?: fallbackTopic.take(30)
+        val translation = lines.firstOrNull { it.startsWith("TRANSLATION:") }
+            ?.removePrefix("TRANSLATION:")?.trim() ?: ""
         val explanation = lines.firstOrNull { it.startsWith("EXPLANATION:") }
             ?.removePrefix("EXPLANATION:")?.trim() ?: ""
         val practice = lines.firstOrNull { it.startsWith("PRACTICE:") }
@@ -200,6 +207,7 @@ class BoliAiLayer(
             explanation = explanation,
             vocabulary = vocab,
             practicePrompt = practice,
+            translation = translation,
             source = "gemma",
         )
     }

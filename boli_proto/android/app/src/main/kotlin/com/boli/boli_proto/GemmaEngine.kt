@@ -120,7 +120,7 @@ class GemmaEngine(private val context: Context) {
                     val result = session.generateResponse()
                     session.close()
                     val ms = System.currentTimeMillis() - t0
-                    Log.i(TAG, "generate: ${result?.length ?: 0} chars in ${ms}ms")
+                    Log.i(TAG, "generate: ${result?.length ?: 0} chars in ${ms}ms -> ${result?.take(120)?.replace('\n', ' ')}")
                     result
                 }
             }

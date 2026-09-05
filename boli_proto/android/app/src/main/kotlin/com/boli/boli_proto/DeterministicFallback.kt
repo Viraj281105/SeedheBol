@@ -47,26 +47,81 @@ class DeterministicFallback {
     fun generateMicroLesson(topic: String, ctx: GemmaContext): MicroLesson {
         Log.d(TAG, "Fallback micro-lesson for topic='$topic'")
 
-        // Small curated set for the demo domain (construction, Marathi L2)
+        // Curated set for workplace signboards (Tamil, Marathi, Hindi)
         val knownLessons = mapOf(
-            "cement" to MicroLesson(
-                topic = "सिमेंट (Cement)",
-                explanation = "सिमेंट म्हणजे इमारत बांधण्यासाठी वापरलेला पदार्थ.",
+            "காலை" to MicroLesson(
+                topic = "காலை வணக்கம் (Morning Sign)",
+                translation = "शुभ प्रभात / सुबह का काम",
+                explanation = "यह सुबह के कार्यस्थल का संदेश है। काम की शुरुआत के लिए आवश्यक शब्द।",
+                vocabulary = listOf(
+                    VocabItem("காலை", "सुबह / morning", "kaalai"),
+                    VocabItem("வேலை", "काम / work", "velai"),
+                    VocabItem("வாருங்கள்", "आइए / welcome", "vaarungal"),
+                    VocabItem("வணக்கம்", "नमस्ते / greetings", "vanakkam"),
+                ),
+                practicePrompt = "காலை வணக்கம், வேலை ஆரம்பம்",
+                source = "fallback",
+            ),
+            "வேலை" to MicroLesson(
+                topic = "வேலை நேரம் (Work Hours)",
+                translation = "काम का समय / कार्यस्थल",
+                explanation = "कार्यस्थल पर काम के समय और निर्देशों के बारे में बताया गया है।",
+                vocabulary = listOf(
+                    VocabItem("வேலை", "काम / work", "velai"),
+                    VocabItem("நேரம்", "समय / time", "neram"),
+                    VocabItem("நன்றி", "धन्यवाद / thanks", "nandri"),
+                ),
+                practicePrompt = "வேலை நேரம் ஆரம்பமானது",
+                source = "fallback",
+            ),
+            "सावधान" to MicroLesson(
+                topic = "सावधान (Caution / Safety Sign)",
+                translation = "सावधान रहें / ध्यान से काम करें",
+                explanation = "कार्यस्थल पर सुरक्षा चेतावनी बोर्ड। यहां हेलमेट और जूते पहनना आवश्यक है।",
+                vocabulary = listOf(
+                    VocabItem("सावधान", "सतर्क / caution", "saavdhaan"),
+                    VocabItem("सुरक्षा", "बचाव / safety", "suraksha"),
+                    VocabItem("काळजी", "ध्यान रखना / take care", "kaalji"),
+                    VocabItem("काम", "कार्य / work", "kaam"),
+                ),
+                practicePrompt = "येथे काळजीपूर्वक काम करा",
+                source = "fallback",
+            ),
+            "प्रवेश" to MicroLesson(
+                topic = "प्रवेश निषिद्ध (No Entry)",
+                translation = "अंदर जाना मना है / प्रवेश वर्जित",
+                explanation = "यह चेतावनी बोर्ड है। बिना अनुमति इस क्षेत्र में प्रवेश न करें।",
+                vocabulary = listOf(
+                    VocabItem("प्रवेश", "दाखिला / entry", "pravesh"),
+                    VocabItem("निषिद्ध", "वर्जित / forbidden", "nishiddha"),
+                    VocabItem("थांबा", "रुको / stop", "thaamba"),
+                    VocabItem("परवानगी", "इजाजत / permission", "parvaangi"),
+                ),
+                practicePrompt = "येथे प्रवेश निषिद्ध आहे",
+                source = "fallback",
+            ),
+            "सिमेंट" to MicroLesson(
+                topic = "सिमेंट (Cement Storage)",
+                translation = "सीमेंट और निर्माण सामग्री",
+                explanation = "सिमेंट इमारत बांधण्यासाठी मुख्य घटक आहे. पोती कोरडी ठेवा.",
                 vocabulary = listOf(
                     VocabItem("सिमेंट", "सीमेंट / cement", "simenta"),
                     VocabItem("बांधकाम", "निर्माण कार्य / construction", "bandh-kaam"),
+                    VocabItem("पोती", "बोरी / sack", "poti"),
                 ),
-                practicePrompt = "म्हणा: मला सिमेंट हवे आहे",
+                practicePrompt = "मला सिमेंटची पोती हवी आहेत",
                 source = "fallback",
             ),
             "पाणी" to MicroLesson(
-                topic = "पाणी (Water)",
-                explanation = "पाणी म्हणजे जीवन. कामाच्या ठिकाणी पाण्याची माहिती आवश्यक आहे.",
+                topic = "पिण्याचे पाणी (Drinking Water)",
+                translation = "पीने का पानी",
+                explanation = "कामाच्या ठिकाणी पिण्याच्या पाण्याची सोय दर्शवणारा फलक आहे.",
                 vocabulary = listOf(
                     VocabItem("पाणी", "पानी / water", "paani"),
+                    VocabItem("पिण्याचे", "पीने का / drinking", "pinyache"),
                     VocabItem("टाकी", "टंकी / tank", "taaki"),
                 ),
-                practicePrompt = "म्हणा: मला पाणी द्या",
+                practicePrompt = "पिण्याचे पाणी कुठे आहे?",
                 source = "fallback",
             ),
         )
@@ -77,16 +132,17 @@ class DeterministicFallback {
         }?.value
 
         return match ?: MicroLesson(
-            topic = "नवीन शब्द (New Word)",
-            explanation = "हा शब्द ${ctx.l2}मध्ये शिका. तुमच्या कामाच्या ठिकाणी हे उपयुक्त आहे.",
+            topic = if (topic.isNotBlank()) topic.take(24) else "पाटी वाचन (Signboard)",
+            translation = if (topic.isNotBlank()) "फलकावरील संदेश: $topic" else "फलक समजून घ्या",
+            explanation = "हा फलक ${ctx.l2}मध्ये आहे. तुमच्या दैनंदिन कामासाठी हे समजून घेणे उपयुक्त ठरेल.",
             vocabulary = listOf(
                 VocabItem(
-                    l2Word = topic.take(20),
-                    l1Meaning = "अर्थ उपलब्ध नाही",
+                    l2Word = if (topic.isNotBlank()) topic.take(16) else "शब्द",
+                    l1Meaning = "कार्यस्थळावरील शब्द",
                     romanization = "",
                 ),
             ),
-            practicePrompt = "हे शब्द लक्षात ठेवा.",
+            practicePrompt = "हा शब्द स्पष्ट उच्चारासह बोला",
             source = "fallback",
         )
     }

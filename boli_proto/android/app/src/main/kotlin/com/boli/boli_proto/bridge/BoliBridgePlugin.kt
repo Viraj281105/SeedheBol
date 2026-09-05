@@ -312,6 +312,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             val lesson = response.value
             val resultMap = mapOf(
                 "topic" to lesson.topic,
+                "translation" to lesson.translation,
                 "explanation" to lesson.explanation,
                 "vocabulary" to lesson.vocabulary.map { v ->
                     mapOf(

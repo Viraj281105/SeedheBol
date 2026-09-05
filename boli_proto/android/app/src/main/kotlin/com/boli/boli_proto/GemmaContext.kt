@@ -68,6 +68,7 @@ data class MicroLesson(
     val explanation: String,
     val vocabulary: List<VocabItem> = emptyList(),
     val practicePrompt: String = "",
+    val translation: String = "",
     val source: String = "gemma",
 )
 
