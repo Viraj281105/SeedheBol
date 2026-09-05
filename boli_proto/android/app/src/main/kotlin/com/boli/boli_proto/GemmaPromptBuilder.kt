@@ -185,14 +185,15 @@ object GemmaPromptBuilder {
         val (l1Name, l1Script) = getLanguageScriptName(ctx.l1)
 
         val userPrompt = buildString {
-            val moodText = if (!mood.isNullOrBlank()) " with mood '$mood'" else ""
-            appendLine("You are playing $persona$moodText speaking in $l2Name ($l2Script) to a ${ctx.occupation}.")
+            val moodText = if (!mood.isNullOrBlank()) " with mood/attitude: '$mood'" else ""
+            appendLine("ACT AS A REAL, LIVING CHARACTER in an Indian workplace. You are $persona$moodText speaking in $l2Name ($l2Script) to a ${ctx.occupation}.")
             appendLine("Workplace situation: $scenario.")
             if (!scenarioAngle.isNullOrBlank()) {
-                appendLine("SPECIFIC SITUATION TOPIC: $scenarioAngle")
+                appendLine("SITUATION ANGLE: $scenarioAngle")
             }
-            appendLine("TASK: Speak your opening question or statement to start the conversation naturally.")
-            appendLine("Keep it to EXACTLY ONE short spoken sentence (under 12 words) in authentic $l2Name.")
+            appendLine("CREATIVE DIRECTION: Sound like an actual person on the job — not an AI tutor. Speak with natural rhythm, subtle humor or workplace urgency, and authentic local vocabulary (e.g. respectful address like भाऊ, दादा, साहेब).")
+            appendLine("TASK: Speak your opening question or statement to kick off this interaction naturally.")
+            appendLine("Keep it to EXACTLY ONE short, crisp spoken sentence (under 13 words) in authentic $l2Name.")
             appendLine("Do NOT ask for names. Do NOT use brackets or placeholders.")
             appendLine()
             appendLine("Format strictly as follows (no markdown, no extra commentary):")
@@ -213,10 +214,10 @@ object GemmaPromptBuilder {
      *
      * Instructs the model to:
      *   1. Understand user intent semantically (tolerate broken grammar or slang).
-     *   2. Respond naturally in persona with given mood.
+     *   2. Respond naturally with authentic character emotion and workplace realism.
      *   3. Evaluate the learner's fluency on a 0-100 scale.
      *   4. Suggest a more natural/polite phrasing for the learner ("Better Way").
-     *   5. Provide native L1 comprehension and articulation tips.
+     *   5. Provide encouraging, street-smart coaching and pronunciation tips.
      */
     fun buildRoleplayNextTurnPrompt(
         history: List<DialogueTurn>,
@@ -231,15 +232,17 @@ object GemmaPromptBuilder {
 
         val userPrompt = buildString {
             val moodText = if (!mood.isNullOrBlank()) " ($mood)" else ""
-            appendLine("You are playing $persona$moodText speaking in $l2Name ($l2Script) to a ${ctx.occupation}.")
+            appendLine("ACT AS A CHARACTER: You are $persona$moodText speaking in $l2Name ($l2Script) to a ${ctx.occupation}.")
             appendLine("SESSION PROGRESS: Turn $turnNumber of $maxTurns.")
             if (turnNumber >= maxTurns) {
-                appendLine("FINAL TURN: Acknowledge what the learner said and conclude the conversation naturally in 1 sentence in $l2Script.")
+                appendLine("FINAL TURN: Acknowledge what the learner said, give a warm closing reaction, and wrap up the conversation naturally in 1 sentence in $l2Script.")
             } else {
-                appendLine("TASK: Respond directly to what the Learner said in their latest turn as $persona.")
+                appendLine("TASK: React and respond directly to what the Learner said in their latest turn as $persona.")
             }
-            appendLine("Keep your L2 response to EXACTLY ONE spoken sentence (under 14 words) in authentic $l2Script.")
-            appendLine("DO NOT repeat or echo the Learner's words. DO NOT repeat your own previous question.")
+            appendLine("CREATIVE ACTING RULES:")
+            appendLine("- React with real emotional resonance (relief, urgency, praise, humor, or practical direction).")
+            appendLine("- Keep your L2 response to EXACTLY ONE spoken sentence (under 14 words) in authentic $l2Script.")
+            appendLine("- DO NOT repeat or echo the Learner's words. DO NOT repeat your own previous question.")
             appendLine()
             appendLine("Example:")
             appendLine("Previous Bot: सिमेंटचा साठा पुरेसा आहे का?")
@@ -261,11 +264,11 @@ object GemmaPromptBuilder {
             appendLine("L2: Your 1-sentence response in $l2Script to the Learner")
             appendLine("L1: Meaning of your response in $l1Script")
             appendLine("FLUENCY: 0 to 100 integer rating the learner's actual utterance")
-            appendLine("BETTER: Polite natural phrasing the learner could have used in $l2Script")
-            appendLine("FEEDBACK: 1 short sentence in $l1Script giving constructive feedback to the learner")
-            appendLine("HINT: One short pronunciation tip in $l1Script, or write none")
+            appendLine("BETTER: Natural, colloquial phrasing the learner could use in $l2Script")
+            appendLine("FEEDBACK: 1 short encouraging sentence in $l1Script giving constructive feedback")
+            appendLine("HINT: One practical pronunciation tip in $l1Script, or write none")
             appendLine()
-            appendLine("CRITICAL: Output ONLY authentic $l2Name in L2. Respond to the Learner. Never parrot.")
+            appendLine("CRITICAL: Output ONLY authentic $l2Name in L2. Respond to the Learner with genuine character warmth. Never parrot.")
         }
         return wrapTurn(userPrompt)
     }
@@ -420,26 +423,31 @@ object GemmaPromptBuilder {
         val userPrompt = buildString {
             appendLine(systemHeader(ctx))
             appendLine()
-            appendLine("TASK: Create a 2-minute daily workplace language challenge for a ${ctx.occupation} learning $l2Name.")
-            appendLine("The scenario MUST be practical for an Indian workplace (delivery, site work, security, customer query).")
+            appendLine("TASK: Create an exciting, realistic 2-minute daily workplace language challenge for a ${ctx.occupation} learning $l2Name.")
+            appendLine("CREATIVE THEMES: Pick a high-engagement workplace storyline with natural drama or urgency:")
+            appendLine("- Surprise site inspection by municipal engineer")
+            appendLine("- Heavy monsoon rain alert: quick teamwork to cover supplies")
+            appendLine("- Missing tool spanner needed urgently for machine repair")
+            appendLine("- Bargaining or clarifying an order at the hardware store or tea stall")
+            appendLine("- Navigating a delivery tempo through narrow gate")
             appendLine("All $l2Name text MUST be written in authentic $l2Script.")
             appendLine("All $l1Name text MUST be written in authentic $l1Script.")
             if (ctx.frequentlyMissedWords.isNotEmpty()) {
-                appendLine("Target words: ${ctx.frequentlyMissedWords.take(3).joinToString(", ")}.")
+                appendLine("Target words to include: ${ctx.frequentlyMissedWords.take(3).joinToString(", ")}.")
             }
             appendLine()
             appendLine("Format strictly as follows line by line (do NOT include angle brackets <>, no markdown):")
-            appendLine("TITLE: Short English Title")
-            appendLine("NATIVE_TITLE: Short title in $l2Script")
-            appendLine("NPC_ROLE: Supervisor or Customer role in $l2Script")
+            appendLine("TITLE: Catchy English Title (e.g. Monsoon Prep Rush, The Missing Spanner)")
+            appendLine("NATIVE_TITLE: Punchy title in $l2Script")
+            appendLine("NPC_ROLE: Supervisor, Coworker, or Customer role in $l2Script")
             appendLine("OBJECTIVE: Goal in English (1 sentence)")
             appendLine("OBJECTIVE_NATIVE: Goal in $l1Script (1 sentence)")
-            appendLine("OPENER_L2: Realistic first sentence spoken by the NPC in $l2Script (one sentence, under 15 words)")
-            appendLine("OPENER_L1: Hindi/native translation of the opener in $l1Script")
+            appendLine("OPENER_L2: Dramatic, engaging first sentence spoken by the NPC in $l2Script (one sentence, under 14 words)")
+            appendLine("OPENER_L1: Meaning of the opener in $l1Script")
             appendLine("TARGET_WORDS: 2 or 3 essential vocabulary words in $l2Script separated by commas")
             appendLine("MAX_TURNS: 4")
             appendLine()
-            appendLine("CRITICAL: Under NO circumstances repeat words or phrases in loops. Keep sentences crisp, authentic, and polite.")
+            appendLine("CRITICAL: Under NO circumstances repeat words or phrases in loops. Keep sentences crisp, authentic, and emotionally alive.")
             appendLine("Begin directly with TITLE:")
         }
         return wrapTurn(userPrompt)

@@ -347,6 +347,8 @@ class BoliAiLayer(
         val isGemma: Boolean,
     )
 
+    private val personaScenarioIndices = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     private val personaScenarios: Map<String, List<PersonaQuestionScenario>> = mapOf(
         "supervisor" to listOf(
             PersonaQuestionScenario(
@@ -384,6 +386,30 @@ class BoliAiLayer(
                 l1 = "काम के औजार और मशीन ठीक चल रही है क्या, कोई खराबी है?",
                 mood = "यंत्र तपासणी (Inspection)",
                 angle = "Tool and machine maintenance check"
+            ),
+            PersonaQuestionScenario(
+                l2 = "मोठे साहेब साईट पाहायला येत आहेत, सगळा परिसर स्वच्छ ठेवा आणि काम सुरू ठेवा!",
+                l1 = "बड़े साहब साइट देखने आ रहे हैं, पूरा इलाका साफ रखिए और काम जारी रखिए!",
+                mood = "व्हीआयपी भेट (VIP Inspection)",
+                angle = "VIP site inspection walkthrough"
+            ),
+            PersonaQuestionScenario(
+                l2 = "पावसाचा अंदाज आहे, सिमेंटची सर्व पोती ताडपत्रीने नीट झाकली आहेत का?",
+                l1 = "बारिश का अंदेशा है, सीमेंट की सारी बोरियां तिरपाल से ठीक से ढकी हैं क्या?",
+                mood = "पावसाची तयारी (Monsoon Alert)",
+                angle = "Monsoon rain protection and tarping"
+            ),
+            PersonaQuestionScenario(
+                l2 = "शाब्बास भाऊ! कालचे भिंतीचे काम एकदम मजबूत आणि सरळ रेषेत झाले आहे.",
+                l1 = "शाबाश भाई! कल का दीवार का काम एकदम मजबूत और सीधी लाइन में हुआ है।",
+                mood = "शाब्बासकी (Praise & Morale)",
+                angle = "Recognizing high quality work"
+            ),
+            PersonaQuestionScenario(
+                l2 = "आजचे काम वेळेआधी संपले तर संध्याकाळी लवकर सुट्टी देऊ, जोरात हात चालवा!",
+                l1 = "आज का काम समय से पहले खत्म हो गया तो शाम को जल्दी छुट्टी देंगे, तेजी से हाथ चलाएं!",
+                mood = "उत्साहवर्धन (Speed & Reward)",
+                angle = "Early wrap-up incentive"
             )
         ),
         "shopkeeper" to listOf(
@@ -422,6 +448,30 @@ class BoliAiLayer(
                 l1 = "किस कंपनी का पेंट और ब्रश चाहिए? एशियन या बर्जर?",
                 mood = "सल्लागार (Consultative)",
                 angle = "Brand selection and recommendation"
+            ),
+            PersonaQuestionScenario(
+                l2 = "अरे भाऊ, आज उधारी बंद आहे, पण तुमच्या विश्वासावर देतो, लवकर चुकता करा!",
+                l1 = "अरे भाई, आज उधारी बंद है, लेकिन आपके विश्वास पर देता हूं, जल्दी चुका देना!",
+                mood = "उधारी आणि विश्वास (Credit Banter)",
+                angle = "Friendly store credit policy"
+            ),
+            PersonaQuestionScenario(
+                l2 = "पाचशेची सुट्टी नोट नाहीये, शंभर रुपये ऑनलाईन ट्रान्सफर करता का?",
+                l1 = "पांच सौ का छुट्टे नहीं हैं, सौ रुपये ऑनलाइन ट्रांसफर कर दोगे क्या?",
+                mood = "सुट्टे पैसे (Change Exchange)",
+                angle = "Cash change shortage and online transfer"
+            ),
+            PersonaQuestionScenario(
+                l2 = "नवीन वॉटरप्रूफ पुट्टी आली आहे, छतावर लावली तर पाण्याचा थेंबही गळणार नाही!",
+                l1 = "नई वाटरप्रूफ पुट्टी आई है, छत पर लगाओगे तो पानी की एक बूंद भी नहीं टपकेगी!",
+                mood = "नवीन उत्पादन (New Product Pitch)",
+                angle = "Waterproofing chemical demo"
+            ),
+            PersonaQuestionScenario(
+                l2 = "उरलेल्या टाइल्सचा बॉक्स शाबूत असेल, तर उद्या परत आणून पैसे घेऊन जा.",
+                l1 = "बचे हुए टाइल्स का बॉक्स सही सलामत रहे, तो कल वापस लाकर पैसे ले जाना।",
+                mood = "परतीची हमी (Return Guarantee)",
+                angle = "Unused tiles return policy"
             )
         ),
         "watchman" to listOf(
@@ -460,6 +510,30 @@ class BoliAiLayer(
                 l1 = "दोपहर २ बजे तक बाहर वालों को परमिशन नहीं है, पूर्व अनुमति है क्या?",
                 mood = "सतर्क (Alert Vigilance)",
                 angle = "Restricted hours access control"
+            ),
+            PersonaQuestionScenario(
+                l2 = "आत मोठी क्रेन चालू आहे, डाव्या बाजूच्या पिवळ्या मार्गावरूनच पुढे जा.",
+                l1 = "अंदर बड़ी क्रेन चल रही है, बाईं तरफ के पीले रास्ते से ही आगे जाएं।",
+                mood = "मार्गदर्शन (Safety Path)",
+                angle = "Safe walkway instructions"
+            ),
+            PersonaQuestionScenario(
+                l2 = "संध्याकाळी जाताना बॅग तपासायला दाखवावी लागेल, कंपनीचा कडक नियम आहे.",
+                l1 = "शाम को जाते समय बैग चेक कराना पड़ेगा, कंपनी का कड़ा नियम है।",
+                mood = "तपासणी (Exit Check)",
+                angle = "Tool bag inspection at exit"
+            ),
+            PersonaQuestionScenario(
+                l2 = "बाहेरून जेवणाचा डबा आला आहे, गेटवर नाव तपासून पटकन घेऊन जा.",
+                l1 = "बाहर से खाने का टिफिन आया है, गेट पर नाम चेक करके जल्दी ले जाओ।",
+                mood = "मदत (Tiffin Delivery)",
+                angle = "Lunch delivery handover"
+            ),
+            PersonaQuestionScenario(
+                l2 = "शिफ्ट संपली का भाऊ? आज खूप काम केले, व्यवस्थित घरी पोहोचा!",
+                l1 = "शिफ्ट खत्म हो गई क्या भाई? आज बहुत मेहनत की, आराम से घर पहुंचिए!",
+                mood = "आपुलकी (Warm Farewell)",
+                angle = "End of shift friendly greeting"
             )
         ),
         "coworker" to listOf(
@@ -498,6 +572,30 @@ class BoliAiLayer(
                 l1 = "सुपरवाइजर ने तुम्हें आज कौन सा काम दिया है? उधर का या इधर का?",
                 mood = "गप्पा (Curious Chat)",
                 angle = "Task distribution chat"
+            ),
+            PersonaQuestionScenario(
+                l2 = "अरे भावा, वायर जोडण्यापूर्वी मेन स्विच बंद केला आहे ना?",
+                l1 = "अरे भाई, तार जोड़ने से पहले मेन स्विच बंद किया है ना?",
+                mood = "काळजी (Safety Check)",
+                angle = "Electrical safety reminder"
+            ),
+            PersonaQuestionScenario(
+                l2 = "उद्या रविवार आहे, गावाला जाणार की इथेच आराम करणार?",
+                l1 = "कल रविवार है, गांव जाओगे या यहीं आराम करोगे?",
+                mood = "सुट्टीचा बेत (Weekend Plans)",
+                angle = "Weekend off discussion"
+            ),
+            PersonaQuestionScenario(
+                l2 = "मशिनचा आवाज जरा खडखड येतोय, गिअरमध्ये तेल टाकायचे का?",
+                l1 = "मशीन की आवाज थोड़ी अजीब आ रही है, गियर में तेल डालना है क्या?",
+                mood = "यंत्र चर्चा (Machine Tuning)",
+                angle = "Greasing and mechanical maintenance"
+            ),
+            PersonaQuestionScenario(
+                l2 = "एक नंबर काम केलेस भावा! आज साहेबांकडून शाब्बासकी नक्की मिळणार!",
+                l1 = "एक नंबर काम किया भाई! आज साहब से पक्की तारीफ मिलेगी!",
+                mood = "उत्साह (Celebration)",
+                angle = "Cheering a coworker's achievement"
             )
         ),
         "canteen" to listOf(
@@ -530,6 +628,94 @@ class BoliAiLayer(
                 l1 = "आज नाश्ते में पोहा और उपमा खत्म हो गया, शीरा चलेगा क्या?",
                 mood = "पर्याय (Breakfast Alternative)",
                 angle = "Breakfast alternative"
+            ),
+            PersonaQuestionScenario(
+                l2 = "आले आणि वेलची घातलेला कडक मसाला चहा काढतो, दोन मिनिटे थांबा!",
+                l1 = "अदरक और इलायची वाली कड़क मसाला चाय बनाता हूं, दो मिनट रुकिए!",
+                mood = "कडक मसाला (Signature Chai)",
+                angle = "Ginger cardamom tea special"
+            ),
+            PersonaQuestionScenario(
+                l2 = "डब्यासोबत थंड पाण्याची ताजी बाटली पाहिजे का भाऊ?",
+                l1 = "टिफिन के साथ ठंडे पानी की ताजा बोतल चाहिए क्या भाई?",
+                mood = "थंडगार (Chilled Water)",
+                angle = "Bottled drinking water"
+            ),
+            PersonaQuestionScenario(
+                l2 = "कालच्या चहाचा हिशोब बाकी होता, आज एकत्र देणार का?",
+                l1 = "कल की चाय का हिसाब बाकी था, आज एक साथ दोगे क्या?",
+                mood = "हिशोब (Daily Tab)",
+                angle = "Settling daily chai tab"
+            ),
+            PersonaQuestionScenario(
+                l2 = "पावसाळी हवेत गरमागरम कांदा भजी तयार केली आहेत, एक प्लेट देऊ का?",
+                l1 = "बारिश के मौसम में गरमागरम प्याज के पकोड़े बनाए हैं, एक प्लेट दूं क्या?",
+                mood = "पावसाळी चव (Rain Snack Special)",
+                angle = "Hot fritters and monsoon snack"
+            ),
+            PersonaQuestionScenario(
+                l2 = "रात्रीच्या शिफ्टसाठी थर्मॉसमध्ये गरम चहा भरून देऊ का भाऊ?",
+                l1 = "नाइट शिफ्ट के लिए थर्मस में गरम चाय भरकर दे दूं क्या भाई?",
+                mood = "रात्रपाळी सेवा (Night Shift Care)",
+                angle = "Night shift tea flask"
+            )
+        ),
+        "client" to listOf(
+            PersonaQuestionScenario(
+                l2 = "नमस्ते! ह्या हॉलच्या लाद्या बसवण्याचे काम आज संध्याकाळपर्यंत पूर्ण होईल का?",
+                l1 = "नमस्ते! इस हॉल के फर्श का काम आज शाम तक पूरा हो जाएगा क्या?",
+                mood = "कामाची चौकशी (Progress Inquiry)",
+                angle = "Flooring and finishing timeline"
+            ),
+            PersonaQuestionScenario(
+                l2 = "बाथरूममधील पाण्याचा नळ जरा नीट घट्ट बसवा, गळती अजिबात नको.",
+                l1 = "बाथरूम का नल ठीक से टाइट लगाइएगा, लीकेज बिल्कुल नहीं होना चाहिए।",
+                mood = "सफाईदार काम (Quality Requirement)",
+                angle = "Plumbing fixtures tightness"
+            ),
+            PersonaQuestionScenario(
+                l2 = "खूप ऊन आहे बाहेर, आधी थंड पाणी किंवा सरबत घ्या मग काम करा.",
+                l1 = "बाहर बहुत तेज धूप है, पहले ठंडा पानी या शरबत पी लीजिए फिर काम करें।",
+                mood = "आपुलकी व आदर (Kind Hospitality)",
+                angle = "Offering cold refreshments"
+            ),
+            PersonaQuestionScenario(
+                l2 = "भिंतीचा हा निळा रंग खूप सुरेख दिसतोय, अगदी व्यवस्थित रंगवला आहे!",
+                l1 = "दीवार का यह नीला रंग बहुत प्यारा लग रहा है, बिल्कुल अच्छे से पेंट किया है!",
+                mood = "प्रशंसा (Customer Satisfaction)",
+                angle = "Praising paint finish"
+            ),
+            PersonaQuestionScenario(
+                l2 = "कपाटाच्या वर आणखी एक छोटी फळी बसवता येईल का, जास्तीचे सामान ठेवायला?",
+                l1 = "अलमारी के ऊपर एक छोटी शेल्फ और लगा सकते हैं क्या, अतिरिक्त सामान रखने के लिए?",
+                mood = "नवीन विनंती (Custom Request)",
+                angle = "Adding custom shelf"
+            )
+        ),
+        "driver" to listOf(
+            PersonaQuestionScenario(
+                l2 = "भाऊ, ही वाळू आणि खडी कुठे खाली करू? गेटजवळ की आत?",
+                l1 = "भाई, यह बालू और गिट्टी कहाँ खाली करूं? गेट के पास या अंदर?",
+                mood = "सामान उतरवणे (Unloading Location)",
+                angle = "Material drop-off spot"
+            ),
+            PersonaQuestionScenario(
+                l2 = "रस्ता खूप अरुंद आहे, टेम्पो मागे वळवायला जरा वाट दाखवा.",
+                l1 = "रास्ता बहुत संकरा है, टेम्पो पीछे मोड़ने के लिए थोड़ा रास्ता दिखाइए।",
+                mood = "रस्ता मार्गदर्शन (Narrow Lane Reversing)",
+                angle = "Guiding truck in narrow street"
+            ),
+            PersonaQuestionScenario(
+                l2 = "भाडे पाचशे रुपये ठरले होते, हमालीचे कामगार तुम्ही बोलावले आहेत ना?",
+                l1 = "भाड़ा पांच सौ तय हुआ था, अनलोडिंग के लेबर आपने बुलाए हैं ना?",
+                mood = "भाडे व हमाली (Freight & Labor)",
+                angle = "Freight fare and loading labor"
+            ),
+            PersonaQuestionScenario(
+                l2 = "पुढील डिलिव्हरीसाठी लवकर निघायचे आहे, पावतीवर सही करून द्या पटकन.",
+                l1 = "अगली डिलीवरी के लिए जल्दी निकलना है, रसीद पर दस्तखत कर दीजिए जल्दी।",
+                mood = "घाई (Quick Challan Signoff)",
+                angle = "Delivery challan signature in a rush"
             )
         )
     )
@@ -545,6 +731,8 @@ class BoliAiLayer(
             p.contains("guard") || p.contains("watchman") || p.contains("security") -> "watchman"
             p.contains("coworker") || p.contains("worker") || p.contains("peer") -> "coworker"
             p.contains("canteen") || p.contains("tea") || p.contains("chai") -> "canteen"
+            p.contains("client") || p.contains("customer") || p.contains("malik") -> "client"
+            p.contains("driver") || p.contains("auto") || p.contains("tempo") -> "driver"
             else -> "supervisor"
         }
         val pool = personaScenarios[key] ?: personaScenarios["supervisor"]!!
@@ -556,7 +744,12 @@ class BoliAiLayer(
             val matched = pool.firstOrNull { it.angle.contains(scenarioAngle, ignoreCase = true) }
             if (matched != null) return matched
         }
-        return pool.random()
+        // Deterministic cycle sequencer: rotates smoothly through all scenarios
+        // guaranteeing that successive sessions always feel fresh, vibrant, and varied
+        val nextIdx = personaScenarioIndices.compute(key) { _, current ->
+            ((current ?: -1) + 1) % pool.size
+        } ?: 0
+        return pool[nextIdx]
     }
 
     /**
