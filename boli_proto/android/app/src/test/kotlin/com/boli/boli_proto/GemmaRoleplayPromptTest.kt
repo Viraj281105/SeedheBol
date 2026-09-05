@@ -173,14 +173,44 @@ class GemmaRoleplayPromptTest {
     }
 
     @Test
-    fun testNextTurnPromptContainsExemplar() {
+    fun testNextTurnPromptStructure() {
         val ctx = GemmaContext(l1 = "Hindi", l2 = "Marathi", occupation = "shop assistant", userLevel = "beginner")
         val history = listOf(
             DialogueTurn("bot", "काय हवे आहे तुम्हाला?"),
             DialogueTurn("user", "मला चहा पाहिजे.")
         )
         val prompt = GemmaPromptBuilder.buildRoleplayNextTurnPrompt(history, ctx, turnNumber = 2, maxTurns = 5)
-        assertTrue("Prompt must include exemplar", prompt.contains("Example turn format:"))
-        assertTrue("Prompt must require strict format without markdown", prompt.contains("Strict format (output ONLY these 6 tags"))
+        assertTrue("Prompt must require strict format without markdown", prompt.contains("Strict format"))
+        assertTrue("Prompt must specify L2 tag", prompt.contains("L2:"))
+        assertTrue("Prompt must specify FLUENCY tag", prompt.contains("FLUENCY:"))
+    }
+
+    @Test
+    fun testParrotOrRepetitionDetection() {
+        val history = listOf(
+            DialogueTurn("bot", "कामाची अवजारे आणि मशिन व्यवस्थित चालू आहेत का, काही बिघाड आहे?"),
+            DialogueTurn("user", "नाही काही बिघाड नाही आहे")
+        )
+
+        // 1. Repeating previous bot question must be rejected
+        val selfRepeat = "कामाची अवजारे आणि मशिन व्यवस्थित चालू आहेत का, काही बिघाड आहे"
+        assertTrue(
+            "Echo of previous question must be flagged as repetition",
+            BoliAiLayer.isParrotOrRepetition(selfRepeat, "नाही काही बिघाड नाही आहे", history)
+        )
+
+        // 2. Parroting user's words must be rejected
+        val userParrot = "आणली आहे मडली आहे"
+        assertTrue(
+            "Parroting user words must be flagged as repetition",
+            BoliAiLayer.isParrotOrRepetition(userParrot, "हो मडली आहे", history)
+        )
+
+        // 3. Genuine conversational reply must be accepted
+        val goodResponse = "छान, मग काम सुरू करा आणि काळजी घ्या."
+        assertFalse(
+            "Natural progression must NOT be flagged as repetition",
+            BoliAiLayer.isParrotOrRepetition(goodResponse, "नाही काही बिघाड नाही आहे", history)
+        )
     }
 }

@@ -35,6 +35,9 @@ abstract class IBoliBridge {
     required String situationId,
     required String currentNodeId,
     required String userSpokenText,
+    int? turnNumber,
+    int? maxTurns,
+    String? mood,
   });
 
   // TTS Synthesis & Playback
@@ -214,12 +217,18 @@ class BoliBridge implements IBoliBridge {
     required String situationId,
     required String currentNodeId,
     required String userSpokenText,
+    int? turnNumber,
+    int? maxTurns,
+    String? mood,
   }) async {
     final result = await _methodChannel
         .invokeMapMethod<String, dynamic>('submitUserUtterance', {
           'situation_id': situationId,
           'current_node_id': currentNodeId,
           'user_spoken_text': userSpokenText,
+          'turn_number': ?turnNumber,
+          'max_turns': ?maxTurns,
+          'mood': ?mood,
         });
     if (result == null) {
       throw StateError('Failed to evaluate utterance for node $currentNodeId');

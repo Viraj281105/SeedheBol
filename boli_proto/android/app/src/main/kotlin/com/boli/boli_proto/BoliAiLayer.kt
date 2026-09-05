@@ -301,7 +301,7 @@ class BoliAiLayer(
             val raw = gemma.generate(prompt, temperature = GemmaEngine.ROLEPLAY_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val turn = parseRoleplayResponse(raw, ctx, userSpokenText)
-                if (turn != null && LlmOutputSanitizer.isValidL2Output(turn.text, ctx.l2)) {
+                if (turn != null && LlmOutputSanitizer.isValidL2Output(turn.text, ctx.l2) && !isParrotOrRepetition(turn.text, userSpokenText, history)) {
                     val ms = System.currentTimeMillis() - t0
                     Log.i(TAG, "Gemma roleplay turn in ${ms}ms with fluency ${turn.fluencyScore}")
                     return mapOf(
@@ -323,7 +323,7 @@ class BoliAiLayer(
                         "latency_ms" to ms,
                     )
                 } else {
-                    Log.w(TAG, "Gemma roleplay turn failed validation or repetition checks, falling back to deterministic")
+                    Log.w(TAG, "Gemma roleplay turn failed validation, parrot or repetition checks, falling back to deterministic")
                 }
             }
         }
@@ -588,7 +588,7 @@ class BoliAiLayer(
             )
             val raw = gemma.generate(prompt, temperature = GemmaEngine.ROLEPLAY_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
-                val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+                val lines = normalizeLlmOutputToLines(raw)
                 val l2Raw = findTagValue(lines, "L2") ?: ""
                 val l1Raw = findTagValue(lines, "L1") ?: ""
                 val l2Clean = LlmOutputSanitizer.sanitize(l2Raw)?.trim() ?: ""
@@ -671,7 +671,7 @@ class BoliAiLayer(
             val evalPrompt = GemmaPromptBuilder.buildEvaluateSpokenIntentPrompt(targetPhrase, prompt, spokenText, ctx)
             val raw = gemma.generate(evalPrompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
-                val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+                val lines = normalizeLlmOutputToLines(raw)
                 val matchVal = findTagValue(lines, "MATCH") ?: ""
                 val feedback = findTagValue(lines, "FEEDBACK") ?: ""
                 val better = findTagValue(lines, "BETTER") ?: targetPhrase
@@ -735,7 +735,7 @@ class BoliAiLayer(
             val prompt = GemmaPromptBuilder.buildPeerCoachPrompt(spokenText, speakerRole, ctx)
             val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
-                val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+                val lines = normalizeLlmOutputToLines(raw)
                 val trans = findTagValue(lines, "TRANS|TRANSLATION") ?: ""
                 val better = findTagValue(lines, "BETTER|NATURAL") ?: ""
                 val tip = findTagValue(lines, "TIP|COACH") ?: ""
@@ -810,24 +810,94 @@ class BoliAiLayer(
     // Resilient response parsers — tolerant of markdown, spacing, and delimiter drift
     // -------------------------------------------------------------------------
 
-    private fun cleanLine(line: String): String {
-        return line.trim()
-            .replace(Regex("^[-*#0-9.\\s]+"), "") // strip leading bullets/numbers/markdown
-            .replace(Regex("[*`#]+"), "")        // strip inline markdown asterisks or backticks
-            .trim()
-    }
+    companion object {
+        private const val TAG = "SeedheBolAi"
 
-    private fun findTagValue(lines: List<String>, tagPattern: String): String? {
-        val regex = Regex("^(?i)(?:$tagPattern)\\s*[:\\-—]\\s*(.*)$")
-        for (line in lines) {
-            val cleaned = cleanLine(line)
-            val match = regex.find(cleaned)
-            if (match != null) {
-                val value = match.groupValues[1].trim()
-                if (value.isNotBlank()) return value
+        private const val ALL_KNOWN_TAGS = "L2|L1|FLUENCY|SCORE|RATING|BETTER|NATURAL|FEEDBACK|HINT|TIP|TOPIC|EXPLANATION|WORD|PRACTICE|MATCH|TITLE|NATIVE_TITLE|NPC_ROLE|OBJECTIVE|OBJECTIVE_NATIVE|OPENER_L2|OPENER_L1|TARGET_WORDS|MAX_TURNS|NPC_L2|NPC_L1|SUCCESS|MEANING|TONE_INTENT|IMPORTANT_WORDS|NATURAL_REPLY|REPLY_NATIVE|REPLY_ROMAN|TRANS|TRANSLATION|VOCAB|D[1-3]_[A-Z]+"
+
+        private val COMMON_CONVERSATIONAL_WORDS = setOf(
+            "साहेब", "सर", "काम", "आहे", "नाही", "होय", "हो", "भावा", "दादा", "जी", "है", "नहीं", "हाँ", "कर", "ते"
+        )
+
+        fun isParrotOrRepetition(candidate: String, userSpokenText: String, history: List<DialogueTurn>): Boolean {
+            val cleanCand = candidate.trim().replace(Regex("[.,?!।\"'\\-]"), "").lowercase()
+            val cleanUser = userSpokenText.trim().replace(Regex("[.,?!।\"'\\-]"), "").lowercase()
+
+            if (cleanCand.isBlank()) return true
+
+            // 1. Exact match with user utterance
+            if (cleanCand == cleanUser) return true
+            if (cleanCand.length > 5 && cleanUser == cleanCand) return true
+
+            val candWords = cleanCand.split(Regex("\\s+")).filter { it.length > 1 }.toSet()
+            val userWords = cleanUser.split(Regex("\\s+")).filter { it.length > 1 }.toSet()
+
+            // 2. High word overlap on meaningful content words (parroting)
+            val contentCandWords = candWords.filter { it !in COMMON_CONVERSATIONAL_WORDS }.toSet()
+            val contentUserWords = userWords.filter { it !in COMMON_CONVERSATIONAL_WORDS }.toSet()
+
+            if (contentCandWords.isNotEmpty() && contentUserWords.isNotEmpty()) {
+                val intersection = contentCandWords.intersect(contentUserWords).size
+                val overlapRatio = intersection.toDouble() / contentCandWords.size.toDouble()
+                if (overlapRatio >= 0.45) {
+                    Log.w(TAG, "Rejected candidate because it parrots user words ($intersection / ${contentCandWords.size}): '$candidate'")
+                    return true
+                }
+            } else if (candWords.isNotEmpty() && userWords.isNotEmpty()) {
+                if (candWords == userWords) return true
             }
+
+            // 3. Repeating any previous bot line in history
+            for (turn in history) {
+                if (turn.speaker != "user") {
+                    val prevClean = turn.text.trim().replace(Regex("[.,?!।\"'\\-]"), "").lowercase()
+                    if (cleanCand == prevClean) return true
+                    val prevWords = prevClean.split(Regex("\\s+")).filter { it.length > 1 }.toSet()
+                    val prevContentWords = prevWords.filter { it !in COMMON_CONVERSATIONAL_WORDS }.toSet()
+                    if (contentCandWords.isNotEmpty() && prevContentWords.isNotEmpty()) {
+                        val overlap = contentCandWords.intersect(prevContentWords).size
+                        val ratio = overlap.toDouble() / contentCandWords.size.toDouble()
+                        if (ratio >= 0.75) {
+                            Log.w(TAG, "Rejected candidate because it repeats previous bot turn ($overlap / ${contentCandWords.size}): '$candidate'")
+                            return true
+                        }
+                    }
+                }
+            }
+
+            return false
         }
-        return null
+
+        fun normalizeLlmOutputToLines(raw: String): List<String> {
+            val withNewlines = raw
+                .replace(Regex("(?i)[#*\\s]+(?=(?:$ALL_KNOWN_TAGS)\\s*[:\\-—–=])"), "\n")
+                .replace(Regex("##+"), "\n")
+            return withNewlines.lines().map { it.trim() }.filter { it.isNotBlank() }
+        }
+
+        fun cleanLine(line: String): String {
+            return line.trim()
+                .replace(Regex("^[-*#0-9.\\s]+"), "") // strip leading bullets/numbers/markdown
+                .replace(Regex("[*`#]+"), "")        // strip inline markdown asterisks or backticks
+                .trim()
+        }
+
+        fun findTagValue(lines: List<String>, tagPattern: String): String? {
+            val regex = Regex("^(?i)(?:$tagPattern)\\s*[:\\-—–=]\\s*(.*)$")
+            for (line in lines) {
+                val cleaned = cleanLine(line)
+                val match = regex.find(cleaned)
+                if (match != null) {
+                    var value = match.groupValues[1].trim()
+                    val nextTag = Regex("(?i)\\s*(?:##|\\*\\*|\\s)\\s*(?:$ALL_KNOWN_TAGS)\\s*[:\\-—–=]").find(value)
+                    if (nextTag != null) {
+                        value = value.substring(0, nextTag.range.first).trim()
+                    }
+                    if (value.isNotBlank()) return value
+                }
+            }
+            return null
+        }
     }
 
     /**
@@ -837,7 +907,7 @@ class BoliAiLayer(
      *   - Extracts translation, explanation, vocab, and practice sentence
      */
     private fun parseOcrLessonResponse(raw: String, fallbackTopic: String): MicroLesson {
-        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val lines = normalizeLlmOutputToLines(raw)
 
         val explicitTopic = findTagValue(lines, "TOPIC|TITLE")
         val topic = explicitTopic ?: run {
@@ -866,7 +936,7 @@ class BoliAiLayer(
     }
 
     private fun parseDailyMission(raw: String, ctx: GemmaContext): DailyMission? {
-        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val lines = normalizeLlmOutputToLines(raw)
         val title = findTagValue(lines, "TITLE") ?: return null
         if (LlmOutputSanitizer.hasDegenerativeRepetition(title)) {
             Log.w(TAG, "Gemma title rejected due to repetition: '$title'")
@@ -921,7 +991,7 @@ class BoliAiLayer(
     }
 
     private fun parseHeardPhraseAnalysis(raw: String, phrase: String, ctx: GemmaContext): HeardPhraseAnalysis? {
-        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val lines = normalizeLlmOutputToLines(raw)
         val meaning = findTagValue(lines, "MEANING|TRANSLATION|HINDI_MEANING") ?: return null
         if (LlmOutputSanitizer.hasDegenerativeRepetition(meaning)) return null
 
@@ -1017,7 +1087,7 @@ class BoliAiLayer(
      *   HINT: <pronunciation tip or "none">
      */
     private fun parseRoleplayResponse(raw: String, ctx: GemmaContext, userSpokenText: String = ""): DialogueTurn? {
-        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val lines = normalizeLlmOutputToLines(raw)
         var l2Raw = findTagValue(lines, "L2|REPLY|RESPONSE") ?: ""
         if (l2Raw.isBlank()) {
             val first = cleanLine(raw.lines().firstOrNull() ?: "")
@@ -1028,14 +1098,22 @@ class BoliAiLayer(
         l2Raw = LlmOutputSanitizer.stripPlaceholders(l2Raw)
         if (l2Raw.isBlank()) return null
 
-        val l2Text = LlmOutputSanitizer.sanitize(l2Raw) ?: return null
+        var l2Text = l2Raw
         if (!LlmOutputSanitizer.isValidL2Output(l2Text, ctx.l2)) {
-            Log.w(TAG, "Gemma roleplay response failed isValidL2Output check for ${ctx.l2}: '$l2Text'")
-            return null
+            val sanitized = LlmOutputSanitizer.sanitize(l2Raw)
+            if (sanitized != null && LlmOutputSanitizer.isValidL2Output(sanitized, ctx.l2)) {
+                l2Text = sanitized
+            } else {
+                Log.w(TAG, "Gemma roleplay response failed isValidL2Output check for ${ctx.l2}: '$l2Text'")
+                return null
+            }
         }
 
-        val l1Raw = findTagValue(lines, "L1|TRANSLATION") ?: ""
-        val l1Text = LlmOutputSanitizer.stripPlaceholders(l1Raw)
+        val l1Raw = findTagValue(lines, "L1|TRANSLATION|MEANING") ?: ""
+        var l1Text = LlmOutputSanitizer.stripPlaceholders(l1Raw)
+        if (l1Text.isBlank()) {
+            l1Text = deterministic.translateOcrText(l2Text, ctx).replace(Regex("^\\[.*?\\]\\s*"), "")
+        }
 
         val fluencyRaw = findTagValue(lines, "FLUENCY|SCORE|RATING")
         val parsedFluency = fluencyRaw?.filter { it.isDigit() }?.toIntOrNull()
@@ -1065,7 +1143,7 @@ class BoliAiLayer(
      * Parses dynamic exercise drills generated by Gemma.
      */
     private fun parseDynamicExercises(raw: String): List<DynamicExercise> {
-        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val lines = normalizeLlmOutputToLines(raw)
         val list = mutableListOf<DynamicExercise>()
 
         // Drill 1 (Speaking)
@@ -1116,10 +1194,6 @@ class BoliAiLayer(
         }
 
         return list
-    }
-
-    companion object {
-        private const val TAG = "SeedheBolAi"
     }
 }
 

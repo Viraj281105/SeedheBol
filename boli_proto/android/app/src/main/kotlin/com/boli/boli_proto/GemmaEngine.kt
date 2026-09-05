@@ -54,7 +54,7 @@ class GemmaEngine(private val context: Context) {
         private set
 
     // -------------------------------------------------------------------------
-    // Initialisation
+    // Initialisation & Lifecycle
     // -------------------------------------------------------------------------
 
     fun warmUp() {
@@ -68,6 +68,12 @@ class GemmaEngine(private val context: Context) {
         }
 
         try {
+            // Close previous instance if re-initializing
+            try {
+                llmInference?.close()
+            } catch (_: Throwable) {}
+            llmInference = null
+
             val options = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelFile.absolutePath)
                 .setMaxTokens(MAX_SEQUENCE_TOKENS)
@@ -78,10 +84,33 @@ class GemmaEngine(private val context: Context) {
             isAvailable = true
             Log.i(TAG, "Gemma ready — model=${modelFile.name} " +
                     "(${modelFile.length() / 1_048_576}MB) [seqTokens=$MAX_SEQUENCE_TOKENS]")
-        } catch (e: Exception) {
-            Log.e(TAG, "Gemma init failed — falling back to deterministic", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Gemma init failed — falling back to deterministic", t)
             isAvailable = false
             llmInference = null
+        }
+    }
+
+    /**
+     * Checks if Gemma is available or tries to initialize if a model was newly pushed.
+     */
+    fun checkAvailability(): Boolean {
+        if (isAvailable && llmInference != null) return true
+        warmUp()
+        return isAvailable
+    }
+
+    /**
+     * Explicit lifecycle cleanup — releases the ~1.5GB native model memory.
+     */
+    fun close() {
+        try {
+            isAvailable = false
+            llmInference?.close()
+            llmInference = null
+            Log.i(TAG, "GemmaEngine successfully closed and native resources freed.")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Error while closing GemmaEngine", t)
         }
     }
 
@@ -105,55 +134,53 @@ class GemmaEngine(private val context: Context) {
 
     /**
      * Generates a completion for [prompt].
-     * Returns null if the engine is not available or generation fails.
+     * Returns null if the engine is not available or generation fails/times out.
      * Callers must handle null by routing to [DeterministicFallback].
      *
-     * @param temperature Lower (~0.2) for structured extractions/lessons,
-     *                    higher (~0.7) for conversational roleplay.
+     * @param temperature Lower (~0.15) for structured extractions/lessons,
+     *                    higher (~0.45) for conversational roleplay.
      */
     suspend fun generate(
         prompt: String,
         temperature: Float = STRUCTURED_TEMPERATURE,
         topK: Int = TOP_K,
     ): String? {
-        if (!isAvailable) return null
+        if (!isAvailable) {
+            if (!checkAvailability()) return null
+        }
         val inference = llmInference ?: return null
 
         return try {
-            mutex.withLock {
-                withContext(Dispatchers.IO) {
-                    val t0 = System.currentTimeMillis()
-                    // Create a fresh session for each generate call so KV-cache
-                    // doesn't accumulate across unrelated prompts.
-                    val session = LlmInferenceSession.createFromOptions(
-                        inference,
-                        sessionOptions(temperature = temperature, topK = topK),
-                    )
-                    val result = try {
-                        val promptToUse = if (prompt.length > 2000) {
-                            Log.w(TAG, "Prompt exceeded 2000 chars (${prompt.length}), trimming")
-                            prompt.take(2000)
-                        } else {
-                            prompt
+            withContext(Dispatchers.IO) {
+                kotlinx.coroutines.withTimeoutOrNull(INFERENCE_TIMEOUT_MS) {
+                    mutex.withLock {
+                        val t0 = System.currentTimeMillis()
+                        // Create a fresh session for each generate call so KV-cache
+                        // doesn't accumulate across unrelated prompts.
+                        val session = LlmInferenceSession.createFromOptions(
+                            inference,
+                            sessionOptions(temperature = temperature, topK = topK),
+                        )
+                        val result = try {
+                            session.addQueryChunk(prompt)
+                            val raw = session.generateResponse()
+                            raw?.ifEmpty { null }
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "MediaPipe generation error caught safely", t)
+                            null
+                        } finally {
+                            try {
+                                session.close()
+                            } catch (_: Throwable) {}
                         }
-                        session.addQueryChunk(promptToUse)
-                        val raw = session.generateResponse()
-                        raw?.ifEmpty { null }
-                    } catch (t: Throwable) {
-                        Log.e(TAG, "MediaPipe generation error caught safely", t)
-                        null
-                    } finally {
-                        try {
-                            session.close()
-                        } catch (_: Throwable) {}
+                        val ms = System.currentTimeMillis() - t0
+                        Log.i(TAG, "generate [temp=$temperature]: ${result?.length ?: 0} chars in ${ms}ms -> ${result?.take(120)?.replace('\n', ' ')}")
+                        result
                     }
-                    val ms = System.currentTimeMillis() - t0
-                    Log.i(TAG, "generate [temp=$temperature]: ${result?.length ?: 0} chars in ${ms}ms -> ${result?.take(120)?.replace('\n', ' ')}")
-                    result
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "generate failed", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "generate failed or timed out", t)
             null
         }
     }
@@ -166,40 +193,52 @@ class GemmaEngine(private val context: Context) {
         prompt: String,
         onToken: suspend (String) -> Unit,
     ): String? {
-        if (!isAvailable) return null
+        if (!isAvailable) {
+            if (!checkAvailability()) return null
+        }
         val inference = llmInference ?: return null
 
         return try {
-            mutex.withLock {
-                withContext(Dispatchers.IO) {
-                    val sb = StringBuilder()
-                    val t0 = System.currentTimeMillis()
+            withContext(Dispatchers.IO) {
+                kotlinx.coroutines.withTimeoutOrNull(INFERENCE_TIMEOUT_MS) {
+                    mutex.withLock {
+                        val sb = StringBuilder()
+                        val t0 = System.currentTimeMillis()
 
-                    val session = LlmInferenceSession.createFromOptions(inference, sessionOptions())
-                    try {
-                        session.addQueryChunk(prompt)
+                        val session = LlmInferenceSession.createFromOptions(inference, sessionOptions())
+                        try {
+                            session.addQueryChunk(prompt)
 
-                        val complete = java.util.concurrent.atomic.AtomicBoolean(false)
-                        val listener = ProgressListener<String> { partial, done ->
-                            partial?.let {
-                                sb.append(it)
-                                runBlocking { onToken(it) }
+                            val complete = java.util.concurrent.atomic.AtomicBoolean(false)
+                            val listener = ProgressListener<String> { partial, done ->
+                                partial?.let {
+                                    sb.append(it)
+                                    runBlocking { onToken(it) }
+                                }
+                                if (done) complete.set(true)
                             }
-                            if (done) complete.set(true)
+                            session.generateResponseAsync(listener)
+                            var elapsed = 0L
+                            while (!complete.get() && elapsed < INFERENCE_TIMEOUT_MS) {
+                                kotlinx.coroutines.delay(20)
+                                elapsed += 20
+                            }
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "MediaPipe streaming error caught safely", t)
+                        } finally {
+                            try {
+                                session.close()
+                            } catch (_: Throwable) {}
                         }
-                        session.generateResponseAsync(listener)
-                        while (!complete.get()) Thread.sleep(20)
-                    } finally {
-                        session.close()
-                    }
 
-                    val ms = System.currentTimeMillis() - t0
-                    Log.i(TAG, "generateStreaming: ${sb.length} chars in ${ms}ms")
-                    sb.toString().ifEmpty { null }
+                        val ms = System.currentTimeMillis() - t0
+                        Log.i(TAG, "generateStreaming: ${sb.length} chars in ${ms}ms")
+                        sb.toString().ifEmpty { null }
+                    }
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "generateStreaming failed", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "generateStreaming failed", t)
             null
         }
     }
@@ -213,19 +252,42 @@ class GemmaEngine(private val context: Context) {
 
         // 1. External pushed files take precedence (allows adb push hot-swapping)
         if (extDir != null) {
+            val gemmaDir = File(extDir, "gemma").apply { if (!exists()) mkdirs() }
+
+            // 1a. Check known candidate filenames in gemma subfolder
             for (filename in CANDIDATE_FILENAMES) {
-                val inSubfolder = File(extDir, "gemma/$filename")
+                val inSubfolder = File(gemmaDir, filename)
                 if (inSubfolder.exists() && inSubfolder.length() > MIN_MODEL_SIZE_BYTES) {
                     Log.i(TAG, "Gemma model (external) @ ${inSubfolder.absolutePath} " +
                             "(${inSubfolder.length() / 1_048_576}MB)")
                     return inSubfolder
                 }
+            }
 
+            // 1b. Check any .task or .bin model file in gemma subfolder
+            val anyInSubfolder = gemmaDir.listFiles()?.firstOrNull {
+                (it.name.endsWith(".task") || it.name.endsWith(".bin")) && it.length() > MIN_MODEL_SIZE_BYTES
+            }
+            if (anyInSubfolder != null) {
+                Log.i(TAG, "Gemma model discovered (external subfolder) @ ${anyInSubfolder.absolutePath} " +
+                        "(${anyInSubfolder.length() / 1_048_576}MB)")
+                return anyInSubfolder
+            }
+
+            // 1c. Check flat external directory
+            for (filename in CANDIDATE_FILENAMES) {
                 val flat = File(extDir, filename)
                 if (flat.exists() && flat.length() > MIN_MODEL_SIZE_BYTES) {
                     Log.i(TAG, "Gemma model (flat) @ ${flat.absolutePath}")
                     return flat
                 }
+            }
+            val anyFlat = extDir.listFiles()?.firstOrNull {
+                (it.name.endsWith(".task") || it.name.endsWith(".bin")) && it.length() > MIN_MODEL_SIZE_BYTES
+            }
+            if (anyFlat != null) {
+                Log.i(TAG, "Gemma model discovered (flat) @ ${anyFlat.absolutePath}")
+                return anyFlat
             }
         }
 
@@ -236,6 +298,13 @@ class GemmaEngine(private val context: Context) {
                 Log.i(TAG, "Gemma model (internal filesDir) @ ${internalFile.absolutePath}")
                 return internalFile
             }
+        }
+        val anyInternal = context.filesDir.listFiles()?.firstOrNull {
+            (it.name.endsWith(".task") || it.name.endsWith(".bin")) && it.length() > MIN_MODEL_SIZE_BYTES
+        }
+        if (anyInternal != null) {
+            Log.i(TAG, "Gemma model discovered (internal) @ ${anyInternal.absolutePath}")
+            return anyInternal
         }
 
         // 3. Check and unpack from APK assets if bundled
@@ -266,19 +335,23 @@ class GemmaEngine(private val context: Context) {
     companion object {
         private const val TAG = "SeedheBolGemma"
         val CANDIDATE_FILENAMES = listOf(
-            "gemma-2b-it-cpu-int4.bin",
-            "gemma-2b-it-cpu-int4.task",
             "gemma-3n-e2b-it-int4.task",
+            "gemma-2b-it-cpu-int4.task",
+            "gemma-2b-it-cpu-int4.bin",
             "gemma-2b-it-gpu-int4.bin",
+            "gemma-2b-it-gpu-int4.task",
         )
-        const val MODEL_FILENAME = "gemma-2b-it-cpu-int4.bin"
-        private const val MAX_SEQUENCE_TOKENS = 384
+        const val MODEL_FILENAME = "gemma-3n-e2b-it-int4.task"
+        /** Max context tokens (prompt + generation). 768 tokens provides ample capacity. */
+        private const val MAX_SEQUENCE_TOKENS = 768
         const val TOP_K = 25
         /** Deterministic, rule-adhering temperature for structured OCR/lesson extraction. */
         const val STRUCTURED_TEMPERATURE = 0.15f
         /** Controlled temperature for conversational turns that prevents INT4 repetition loops. */
-        const val ROLEPLAY_TEMPERATURE = 0.25f
+        const val ROLEPLAY_TEMPERATURE = 0.45f
         /** Guard against truncated pushes — anything below 100 MB is suspicious. */
         private const val MIN_MODEL_SIZE_BYTES = 100L * 1_048_576
+        /** Maximum inference execution duration before returning clean fallback. */
+        const val INFERENCE_TIMEOUT_MS = 12000L
     }
 }

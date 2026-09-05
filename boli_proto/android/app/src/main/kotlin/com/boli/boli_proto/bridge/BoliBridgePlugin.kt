@@ -75,11 +75,21 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     /** Active session context — updated by initializeEngine and user profile. */
     private var sessionCtx = GemmaContext()
 
-    /** In-memory conversation history for roleplay continuity. */
+    /** In-memory conversation history for roleplay continuity guarded by historyLock. */
     private val conversationHistory = mutableListOf<DialogueTurn>()
+    private val historyLock = Any()
 
     /** Canonical TTS engine (FastPitch + System TTS fallback). */
     private val tts by lazy { com.boli.boli_proto.FastPitchTts.getInstance(context) }
+
+    private suspend fun awaitWarmupIfPending(timeoutMs: Long = 3500L) {
+        val job = warmUpJob
+        if (job != null && job.isActive) {
+            withTimeoutOrNull(timeoutMs) {
+                job.join()
+            }
+        }
+    }
 
     // -------------------------------------------------------------------------
     // FlutterPlugin lifecycle
@@ -155,7 +165,12 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel.setMethodCallHandler(null)
         pluginScope.cancel()
-        conversationHistory.clear()
+        synchronized(historyLock) {
+            conversationHistory.clear()
+        }
+        if (::gemmaEngine.isInitialized) {
+            gemmaEngine.close()
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -200,7 +215,9 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
             // Listen Around Me API
             "analyzeHeardPhrase" -> handleAnalyzeHeardPhrase(call, result)
             "clearConversationHistory" -> {
-                conversationHistory.clear()
+                synchronized(historyLock) {
+                    conversationHistory.clear()
+                }
                 result.success(true)
             }
             else -> result.notImplemented()
@@ -223,7 +240,9 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
 
         memoryStore.updateProfile(l1 = l1, l2 = l2, occupation = occupation, userLevel = level)
         sessionCtx = memoryStore.buildPersonalizedGemmaContext()
-        conversationHistory.clear()
+        synchronized(historyLock) {
+            conversationHistory.clear()
+        }
 
         pluginScope.launch {
             withContext(Dispatchers.Main) { result.success(true) }
@@ -264,25 +283,48 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val scenarioAngle = call.argument<String>("scenario_angle")
         val mood = call.argument<String>("mood")
         pluginScope.launch {
-            conversationHistory.clear()
-            val ctx = memoryStore.buildPersonalizedGemmaContext(scenario = scenario)
-            val opener = aiLayer.generateRoleplayOpener(
-                persona = persona,
-                scenario = scenario,
-                ctx = ctx,
-                fallbackL2 = fallbackL2,
-                fallbackL1 = fallbackL1,
-                scenarioAngle = scenarioAngle,
-                mood = mood,
-            )
-            conversationHistory.add(DialogueTurn("bot", opener.l2, l1Text = opener.l1))
-            withContext(Dispatchers.Main) {
-                result.success(mapOf(
-                    "opener_l2" to opener.l2,
-                    "opener_l1" to opener.l1,
-                    "mood" to opener.mood,
-                    "ai_source" to if (opener.isGemma) "gemma" else "fallback"
-                ))
+            try {
+                awaitWarmupIfPending()
+                synchronized(historyLock) {
+                    conversationHistory.clear()
+                }
+                val ctx = memoryStore.buildPersonalizedGemmaContext(scenario = scenario)
+                val opener = aiLayer.generateRoleplayOpener(
+                    persona = persona,
+                    scenario = scenario,
+                    ctx = ctx,
+                    fallbackL2 = fallbackL2,
+                    fallbackL1 = fallbackL1,
+                    scenarioAngle = scenarioAngle,
+                    mood = mood,
+                )
+                synchronized(historyLock) {
+                    conversationHistory.add(DialogueTurn("bot", opener.l2, l1Text = opener.l1))
+                }
+                withContext(Dispatchers.Main) {
+                    result.success(mapOf(
+                        "opener_l2" to opener.l2,
+                        "opener_l1" to opener.l1,
+                        "mood" to opener.mood,
+                        "ai_source" to if (opener.isGemma) "gemma" else "fallback"
+                    ))
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "handleGenerateRoleplayOpener failed, using fallback", t)
+                val defaultL2 = fallbackL2.ifBlank { "काम कसं चाललंय?" }
+                val defaultL1 = fallbackL1.ifBlank { "काम कैसा चल रहा है?" }
+                synchronized(historyLock) {
+                    conversationHistory.clear()
+                    conversationHistory.add(DialogueTurn("bot", defaultL2, l1Text = defaultL1))
+                }
+                withContext(Dispatchers.Main) {
+                    result.success(mapOf(
+                        "opener_l2" to defaultL2,
+                        "opener_l1" to defaultL1,
+                        "mood" to (mood ?: "neutral"),
+                        "ai_source" to "fallback"
+                    ))
+                }
             }
         }
     }
@@ -300,38 +342,54 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val mood = call.argument<String>("mood")
 
         pluginScope.launch {
-            // Track user utterance in local memory
-            memoryStore.addRecentContext("Learner said: $userSpokenText")
-            val scenarioCtx = memoryStore.buildPersonalizedGemmaContext(scenario = situationId)
-            val response = aiLayer.nextRoleplayTurn(
-                history = conversationHistory.toList(),
-                situationId = situationId,
-                currentNodeId = currentNodeId,
-                userSpokenText = userSpokenText,
-                ctx = scenarioCtx,
-                turnNumber = turnNumber,
-                maxTurns = maxTurns,
-                mood = mood,
-            )
-            // Record the user's turn in history for context continuity with its fluency score
-            val fluency = response["fluency_score"] as? Int
-            conversationHistory.add(DialogueTurn("user", userSpokenText, fluencyScore = fluency))
-            // Record bot turn if Gemma responded with one
-            val botText = response["prompt_l2"] as? String ?: ""
-            if (botText.isNotBlank()) {
-                conversationHistory.add(
-                    DialogueTurn(
-                        "bot", botText,
-                        l1Text = response["prompt_l1"] as? String ?: "",
-                    )
+            try {
+                awaitWarmupIfPending()
+                // Track user utterance in local memory
+                memoryStore.addRecentContext("Learner said: $userSpokenText")
+                val scenarioCtx = memoryStore.buildPersonalizedGemmaContext(scenario = situationId)
+                val snapshotHistory = synchronized(historyLock) { conversationHistory.toList() }
+                val response = aiLayer.nextRoleplayTurn(
+                    history = snapshotHistory,
+                    situationId = situationId,
+                    currentNodeId = currentNodeId,
+                    userSpokenText = userSpokenText,
+                    ctx = scenarioCtx,
+                    turnNumber = turnNumber,
+                    maxTurns = maxTurns,
+                    mood = mood,
                 )
-            }
-            // Trim history to last 20 turns to avoid unbounded memory use
-            if (conversationHistory.size > 20) {
-                conversationHistory.removeAll(conversationHistory.take(conversationHistory.size - 20).toSet())
-            }
+                // Record the user's turn in history for context continuity with its fluency score
+                val fluency = response["fluency_score"] as? Int
+                val botText = response["prompt_l2"] as? String ?: ""
+                val botL1 = response["prompt_l1"] as? String ?: ""
 
-            withContext(Dispatchers.Main) { result.success(response) }
+                synchronized(historyLock) {
+                    conversationHistory.add(DialogueTurn("user", userSpokenText, fluencyScore = fluency))
+                    if (botText.isNotBlank()) {
+                        conversationHistory.add(DialogueTurn("bot", botText, l1Text = botL1))
+                    }
+                    // Trim history to last 20 turns to avoid unbounded memory use
+                    if (conversationHistory.size > 20) {
+                        conversationHistory.removeAll(conversationHistory.take(conversationHistory.size - 20).toSet())
+                    }
+                }
+
+                withContext(Dispatchers.Main) { result.success(response) }
+            } catch (t: Throwable) {
+                Log.e(TAG, "handleSubmitUserUtterance failed, using deterministic fallback", t)
+                val scenarioCtx = memoryStore.buildPersonalizedGemmaContext(scenario = situationId)
+                val snapshotHistory = synchronized(historyLock) { conversationHistory.toList() }
+                val fallbackResponse = fallback.nextRoleplayTurn(snapshotHistory, situationId, currentNodeId, scenarioCtx)
+                val botText = fallbackResponse["prompt_l2"] as? String ?: ""
+                val botL1 = fallbackResponse["prompt_l1"] as? String ?: ""
+                synchronized(historyLock) {
+                    conversationHistory.add(DialogueTurn("user", userSpokenText, fluencyScore = fallbackResponse["fluency_score"] as? Int))
+                    if (botText.isNotBlank()) {
+                        conversationHistory.add(DialogueTurn("bot", botText, l1Text = botL1))
+                    }
+                }
+                withContext(Dispatchers.Main) { result.success(fallbackResponse) }
+            }
         }
     }
 
@@ -423,52 +481,92 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val topicHint = call.argument<String>("topic_hint")
 
         pluginScope.launch {
-            val ctx = memoryStore.buildPersonalizedGemmaContext(
-                scenario = topicHint ?: sessionCtx.scenario,
-                ocrText = ocrText,
-            )
-            val response = aiLayer.generateLessonFromOcr(ocrText, ctx)
-            val lesson = response.value
+            try {
+                awaitWarmupIfPending()
+                val ctx = memoryStore.buildPersonalizedGemmaContext(
+                    scenario = topicHint ?: sessionCtx.scenario,
+                    ocrText = ocrText,
+                )
+                val response = aiLayer.generateLessonFromOcr(ocrText, ctx)
+                val lesson = response.value
 
-            // Auto-record extracted vocabulary into learner memory
-            lesson.vocabulary.forEach { v ->
-                memoryStore.addLearnedVocab(v.l2Word)
+                // Auto-record extracted vocabulary into learner memory
+                lesson.vocabulary.forEach { v ->
+                    memoryStore.addLearnedVocab(v.l2Word)
+                }
+                memoryStore.addRecentContext("OCR: ${lesson.topic}")
+
+                val resultMap = mapOf(
+                    "topic" to lesson.topic,
+                    "translation" to lesson.translation,
+                    "explanation" to lesson.explanation,
+                    "vocabulary" to lesson.vocabulary.map { v ->
+                        mapOf(
+                            "l2_word" to v.l2Word,
+                            "l1_meaning" to v.l1Meaning,
+                            "romanization" to v.romanization,
+                            "example_sentence" to v.exampleSentence,
+                        )
+                    },
+                    "practice_prompt" to lesson.practicePrompt,
+                    "source" to response.source.name.lowercase(),
+                    "latency_ms" to response.latencyMs,
+                )
+                withContext(Dispatchers.Main) { result.success(resultMap) }
+            } catch (t: Throwable) {
+                Log.e(TAG, "handleGenerateLessonFromOcr failed, using fallback", t)
+                val ctx = memoryStore.buildPersonalizedGemmaContext(scenario = topicHint ?: sessionCtx.scenario, ocrText = ocrText)
+                val lesson = fallback.generateMicroLesson(topicHint ?: ocrText.take(20), ctx)
+                val resultMap = mapOf(
+                    "topic" to lesson.topic,
+                    "translation" to lesson.translation,
+                    "explanation" to lesson.explanation,
+                    "vocabulary" to lesson.vocabulary.map { v ->
+                        mapOf(
+                            "l2_word" to v.l2Word,
+                            "l1_meaning" to v.l1Meaning,
+                            "romanization" to v.romanization,
+                            "example_sentence" to v.exampleSentence,
+                        )
+                    },
+                    "practice_prompt" to lesson.practicePrompt,
+                    "source" to "fallback",
+                    "latency_ms" to 0L,
+                )
+                withContext(Dispatchers.Main) { result.success(resultMap) }
             }
-            memoryStore.addRecentContext("OCR: ${lesson.topic}")
-
-            val resultMap = mapOf(
-                "topic" to lesson.topic,
-                "translation" to lesson.translation,
-                "explanation" to lesson.explanation,
-                "vocabulary" to lesson.vocabulary.map { v ->
-                    mapOf(
-                        "l2_word" to v.l2Word,
-                        "l1_meaning" to v.l1Meaning,
-                        "romanization" to v.romanization,
-                        "example_sentence" to v.exampleSentence,
-                    )
-                },
-                "practice_prompt" to lesson.practicePrompt,
-                "source" to response.source.name.lowercase(),
-                "latency_ms" to response.latencyMs,
-            )
-            withContext(Dispatchers.Main) { result.success(resultMap) }
         }
     }
 
     private fun handleTranslateText(call: MethodCall, result: Result) {
         val text = call.argument<String>("text") ?: ""
         pluginScope.launch {
-            val ctx = memoryStore.buildPersonalizedGemmaContext(ocrText = text)
-            val response = aiLayer.translateOcrText(text, ctx)
-            withContext(Dispatchers.Main) {
-                result.success(
-                    mapOf(
-                        "translation" to response.value,
-                        "source" to response.source.name.lowercase(),
-                        "latency_ms" to response.latencyMs,
+            try {
+                awaitWarmupIfPending()
+                val ctx = memoryStore.buildPersonalizedGemmaContext(ocrText = text)
+                val response = aiLayer.translateOcrText(text, ctx)
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "translation" to response.value,
+                            "source" to response.source.name.lowercase(),
+                            "latency_ms" to response.latencyMs,
+                        )
                     )
-                )
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "handleTranslateText failed, using fallback", t)
+                val ctx = memoryStore.buildPersonalizedGemmaContext(ocrText = text)
+                val fbTranslation = fallback.translateOcrText(text, ctx)
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "translation" to fbTranslation,
+                            "source" to "fallback",
+                            "latency_ms" to 0L,
+                        )
+                    )
+                }
             }
         }
     }
@@ -476,15 +574,30 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
     private fun handleGetExplanation(call: MethodCall, result: Result) {
         val phrase = call.argument<String>("phrase") ?: ""
         pluginScope.launch {
-            val response = aiLayer.getExplanation(phrase, memoryStore.buildPersonalizedGemmaContext())
-            withContext(Dispatchers.Main) {
-                result.success(
-                    mapOf(
-                        "explanation" to response.value,
-                        "source" to response.source.name.lowercase(),
-                        "latency_ms" to response.latencyMs,
+            try {
+                awaitWarmupIfPending()
+                val response = aiLayer.getExplanation(phrase, memoryStore.buildPersonalizedGemmaContext())
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "explanation" to response.value,
+                            "source" to response.source.name.lowercase(),
+                            "latency_ms" to response.latencyMs,
+                        )
                     )
-                )
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "handleGetExplanation failed, using fallback", t)
+                val fbExp = fallback.getExplanation(phrase, memoryStore.buildPersonalizedGemmaContext())
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "explanation" to fbExp,
+                            "source" to "fallback",
+                            "latency_ms" to 0L,
+                        )
+                    )
+                }
             }
         }
     }
@@ -493,28 +606,55 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val situation = call.argument<String>("situation") ?: "General Work"
         val domain = call.argument<String>("domain") ?: memoryStore.occupation
         pluginScope.launch {
-            val ctx = memoryStore.buildPersonalizedGemmaContext(scenario = situation).copy(occupation = domain)
-            val response = aiLayer.generateDynamicExercises(situation, domain, ctx)
-            memoryStore.addRecentContext("Practiced situation: $situation")
-            val mapped = response.value.map { ex ->
-                mapOf(
-                    "kind" to ex.kind,
-                    "prompt" to ex.prompt,
-                    "target_text" to ex.targetText,
-                    "roman" to ex.roman,
-                    "translation" to ex.translation,
-                    "options" to ex.options,
-                    "answer_index" to ex.answerIndex,
-                )
-            }
-            withContext(Dispatchers.Main) {
-                result.success(
+            try {
+                awaitWarmupIfPending()
+                val ctx = memoryStore.buildPersonalizedGemmaContext(scenario = situation).copy(occupation = domain)
+                val response = aiLayer.generateDynamicExercises(situation, domain, ctx)
+                memoryStore.addRecentContext("Practiced situation: $situation")
+                val mapped = response.value.map { ex ->
                     mapOf(
-                        "exercises" to mapped,
-                        "source" to response.source.name.lowercase(),
-                        "latency_ms" to response.latencyMs,
+                        "kind" to ex.kind,
+                        "prompt" to ex.prompt,
+                        "target_text" to ex.targetText,
+                        "roman" to ex.roman,
+                        "translation" to ex.translation,
+                        "options" to ex.options,
+                        "answer_index" to ex.answerIndex,
                     )
-                )
+                }
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "exercises" to mapped,
+                            "source" to response.source.name.lowercase(),
+                            "latency_ms" to response.latencyMs,
+                        )
+                    )
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "handleGeneratePracticeDrills failed, using fallback", t)
+                val ctx = memoryStore.buildPersonalizedGemmaContext(scenario = situation).copy(occupation = domain)
+                val fallbackList = fallback.generateDynamicExercises(situation, domain, ctx)
+                val mapped = fallbackList.map { ex ->
+                    mapOf(
+                        "kind" to ex.kind,
+                        "prompt" to ex.prompt,
+                        "target_text" to ex.targetText,
+                        "roman" to ex.roman,
+                        "translation" to ex.translation,
+                        "options" to ex.options,
+                        "answer_index" to ex.answerIndex,
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "exercises" to mapped,
+                            "source" to "fallback",
+                            "latency_ms" to 0L,
+                        )
+                    )
+                }
             }
         }
     }
@@ -523,23 +663,44 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val spokenText = call.argument<String>("spoken_text") ?: ""
         val speakerRole = call.argument<String>("speaker_role") ?: "Learner"
         pluginScope.launch {
-            val ctx = memoryStore.buildPersonalizedGemmaContext()
-            val response = aiLayer.coachPeerTurn(spokenText, speakerRole, ctx)
-            memoryStore.addRecentContext("$speakerRole said: $spokenText")
-            val coach = response.value
-            withContext(Dispatchers.Main) {
-                result.success(
-                    mapOf(
-                        "speaker_role" to coach.speakerRole,
-                        "spoken_text" to coach.spokenText,
-                        "translation" to coach.translation,
-                        "better_way" to coach.betterWay,
-                        "coach_tip" to coach.coachTip,
-                        "next_prompt" to coach.nextPromptSuggestion,
-                        "source" to response.source.name.lowercase(),
-                        "latency_ms" to response.latencyMs,
+            try {
+                awaitWarmupIfPending()
+                val ctx = memoryStore.buildPersonalizedGemmaContext()
+                val response = aiLayer.coachPeerTurn(spokenText, speakerRole, ctx)
+                memoryStore.addRecentContext("$speakerRole said: $spokenText")
+                val coach = response.value
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "speaker_role" to coach.speakerRole,
+                            "spoken_text" to coach.spokenText,
+                            "translation" to coach.translation,
+                            "better_way" to coach.betterWay,
+                            "coach_tip" to coach.coachTip,
+                            "next_prompt" to coach.nextPromptSuggestion,
+                            "source" to response.source.name.lowercase(),
+                            "latency_ms" to response.latencyMs,
+                        )
                     )
-                )
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "handleCoachPeerTurn failed, using fallback", t)
+                val ctx = memoryStore.buildPersonalizedGemmaContext()
+                val coach = fallback.coachPeerTurn(spokenText, speakerRole, ctx)
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "speaker_role" to coach.speakerRole,
+                            "spoken_text" to coach.spokenText,
+                            "translation" to coach.translation,
+                            "better_way" to coach.betterWay,
+                            "coach_tip" to coach.coachTip,
+                            "next_prompt" to coach.nextPromptSuggestion,
+                            "source" to "fallback",
+                            "latency_ms" to 0L,
+                        )
+                    )
+                }
             }
         }
     }
@@ -550,24 +711,42 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val spokenText = call.argument<String>("spoken_text") ?: ""
 
         pluginScope.launch {
-            val response = aiLayer.evaluateSpokenIntent(
-                targetPhrase = targetPhrase,
-                prompt = prompt,
-                spokenText = spokenText,
-                ctx = sessionCtx,
-            )
-            val res = response.value
-            withContext(Dispatchers.Main) {
-                result.success(
-                    mapOf(
-                        "is_matched" to res.isMatched,
-                        "confidence" to res.confidence,
-                        "feedback" to res.feedback,
-                        "better_way" to res.betterWay,
-                        "source" to response.source.name.lowercase(),
-                        "latency_ms" to response.latencyMs,
-                    )
+            try {
+                awaitWarmupIfPending()
+                val response = aiLayer.evaluateSpokenIntent(
+                    targetPhrase = targetPhrase,
+                    prompt = prompt,
+                    spokenText = spokenText,
+                    ctx = sessionCtx,
                 )
+                val res = response.value
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "is_matched" to res.isMatched,
+                            "confidence" to res.confidence,
+                            "feedback" to res.feedback,
+                            "better_way" to res.betterWay,
+                            "source" to response.source.name.lowercase(),
+                            "latency_ms" to response.latencyMs,
+                        )
+                    )
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "handleEvaluateSpokenIntent failed, using fallback", t)
+                val resMap = fallback.evaluateSpokenIntent(targetPhrase, prompt, spokenText, sessionCtx)
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "is_matched" to (resMap["is_matched"] ?: false),
+                            "confidence" to (resMap["confidence"] ?: 0.5),
+                            "feedback" to (resMap["feedback"] ?: ""),
+                            "better_way" to (resMap["better_way"] ?: targetPhrase),
+                            "source" to "fallback",
+                            "latency_ms" to 0L,
+                        )
+                    )
+                }
             }
         }
     }
@@ -636,25 +815,49 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
 
     private fun handleGenerateDailyMission(call: MethodCall, result: Result) {
         pluginScope.launch {
-            val ctx = memoryStore.buildPersonalizedGemmaContext()
-            val response = aiLayer.generateDailyMission(ctx)
-            val mission = response.value
-            withContext(Dispatchers.Main) {
-                result.success(
-                    mapOf(
-                        "title" to mission.title,
-                        "native_title" to mission.nativeTitle,
-                        "npc_role" to mission.npcRole,
-                        "objective" to mission.objective,
-                        "objective_native" to mission.objectiveNative,
-                        "opener_l2" to mission.openerL2,
-                        "opener_l1" to mission.openerL1,
-                        "target_words" to mission.targetWords,
-                        "max_turns" to mission.maxTurns,
-                        "source" to response.source.name.lowercase(),
-                        "latency_ms" to response.latencyMs,
+            try {
+                awaitWarmupIfPending()
+                val ctx = memoryStore.buildPersonalizedGemmaContext()
+                val response = aiLayer.generateDailyMission(ctx)
+                val mission = response.value
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "title" to mission.title,
+                            "native_title" to mission.nativeTitle,
+                            "npc_role" to mission.npcRole,
+                            "objective" to mission.objective,
+                            "objective_native" to mission.objectiveNative,
+                            "opener_l2" to mission.openerL2,
+                            "opener_l1" to mission.openerL1,
+                            "target_words" to mission.targetWords,
+                            "max_turns" to mission.maxTurns,
+                            "source" to response.source.name.lowercase(),
+                            "latency_ms" to response.latencyMs,
+                        )
                     )
-                )
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "handleGenerateDailyMission failed, using fallback", t)
+                val ctx = memoryStore.buildPersonalizedGemmaContext()
+                val mission = fallback.generateDailyMission(ctx)
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "title" to mission.title,
+                            "native_title" to mission.nativeTitle,
+                            "npc_role" to mission.npcRole,
+                            "objective" to mission.objective,
+                            "objective_native" to mission.objectiveNative,
+                            "opener_l2" to mission.openerL2,
+                            "opener_l1" to mission.openerL1,
+                            "target_words" to mission.targetWords,
+                            "max_turns" to mission.maxTurns,
+                            "source" to "fallback",
+                            "latency_ms" to 0L,
+                        )
+                    )
+                }
             }
         }
     }
@@ -663,39 +866,66 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val phrase = call.argument<String>("phrase").orEmpty().trim()
 
         pluginScope.launch {
-            val ctx = memoryStore.buildPersonalizedGemmaContext()
-            val response = aiLayer.analyzeHeardPhrase(phrase, ctx)
-            val analysis = response.value
+            try {
+                awaitWarmupIfPending()
+                val ctx = memoryStore.buildPersonalizedGemmaContext()
+                val response = aiLayer.analyzeHeardPhrase(phrase, ctx)
+                val analysis = response.value
 
-            // Automatically record overheard words and context into learner memory
-            if (analysis.importantWords.isNotEmpty()) {
-                analysis.importantWords.forEach { item ->
-                    memoryStore.addLearnedVocab(item.word)
+                // Automatically record overheard words and context into learner memory
+                if (analysis.importantWords.isNotEmpty()) {
+                    analysis.importantWords.forEach { item ->
+                        memoryStore.addLearnedVocab(item.word)
+                    }
                 }
-            }
-            if (analysis.heardPhrase.isNotBlank()) {
-                memoryStore.addRecentContext("Heard: ${analysis.heardPhrase}")
-            }
+                if (analysis.heardPhrase.isNotBlank()) {
+                    memoryStore.addRecentContext("Heard: ${analysis.heardPhrase}")
+                }
 
-            withContext(Dispatchers.Main) {
-                result.success(
-                    mapOf(
-                        "heard_phrase" to analysis.heardPhrase,
-                        "meaning_l1" to analysis.meaningL1,
-                        "tone_intent" to analysis.toneIntent,
-                        "important_words" to analysis.importantWords.map {
-                            mapOf(
-                                "word" to it.word,
-                                "meaning" to it.meaning
-                            )
-                        },
-                        "suggested_reply_l2" to analysis.suggestedReplyL2,
-                        "reply_meaning_l1" to analysis.replyMeaningL1,
-                        "reply_roman" to analysis.replyRoman,
-                        "source" to response.source.name.lowercase(),
-                        "latency_ms" to response.latencyMs,
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "heard_phrase" to analysis.heardPhrase,
+                            "meaning_l1" to analysis.meaningL1,
+                            "tone_intent" to analysis.toneIntent,
+                            "important_words" to analysis.importantWords.map {
+                                mapOf(
+                                    "word" to it.word,
+                                    "meaning" to it.meaning
+                                )
+                            },
+                            "suggested_reply_l2" to analysis.suggestedReplyL2,
+                            "reply_meaning_l1" to analysis.replyMeaningL1,
+                            "reply_roman" to analysis.replyRoman,
+                            "source" to response.source.name.lowercase(),
+                            "latency_ms" to response.latencyMs,
+                        )
                     )
-                )
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "handleAnalyzeHeardPhrase failed, using fallback", t)
+                val ctx = memoryStore.buildPersonalizedGemmaContext()
+                val analysis = fallback.analyzeHeardPhrase(phrase, ctx)
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        mapOf(
+                            "heard_phrase" to analysis.heardPhrase,
+                            "meaning_l1" to analysis.meaningL1,
+                            "tone_intent" to analysis.toneIntent,
+                            "important_words" to analysis.importantWords.map {
+                                mapOf(
+                                    "word" to it.word,
+                                    "meaning" to it.meaning
+                                )
+                            },
+                            "suggested_reply_l2" to analysis.suggestedReplyL2,
+                            "reply_meaning_l1" to analysis.replyMeaningL1,
+                            "reply_roman" to analysis.replyRoman,
+                            "source" to "fallback",
+                            "latency_ms" to 0L,
+                        )
+                    )
+                }
             }
         }
     }

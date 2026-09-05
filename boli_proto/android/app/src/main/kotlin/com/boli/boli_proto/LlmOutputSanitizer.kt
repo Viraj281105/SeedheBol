@@ -18,23 +18,34 @@ object LlmOutputSanitizer {
 
     private const val TAG = "LlmSanitizer"
 
+    private val ALLOWED_REDUPLICATION_WORDS = setOf(
+        "हळू", "लवकर", "गरम", "बारीक", "नवीन", "जाता", "सोबत", "रोज", "थोडे", "थोडा", "थोडी",
+        "पटकन", "खूप", "साफ", "ठीक", "साथ", "पास", "धीरे", "जल्दी", "नवे", "छान", "वेगळे",
+        "पुन्हा", "परत", "पुढे", "मागे", "जवळ", "दूर", "वारंवार", "मोठे", "लहान", "ताजे"
+    )
+
     /**
      * Returns true if [text] exhibits catastrophic repetition or looping.
      */
     fun hasDegenerativeRepetition(text: String): Boolean {
         val trimmed = text.trim()
-        if (trimmed.length < 20) return false
+        if (trimmed.length < 6) return false
 
         val words = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
         if (words.size < 2) return false
 
         // Check 0: Immediate consecutive word repetition (e.g. "लगेगा लगेगा")
+        // Whitelist natural Indic reduplication (e.g. "हळू हळू", "लवकर लवकर", "गरम गरम")
         for (i in 0 until words.size - 1) {
-            val w1 = words[i].replace(Regex("[.,?!।\"'\\-]"), "")
-            val w2 = words[i + 1].replace(Regex("[.,?!।\"'\\-]"), "")
-            if (w1.length >= 2 && w1.equals(w2, ignoreCase = true)) {
-                Log.w(TAG, "Detected immediate consecutive word repetition: \"$w1 $w2\"")
-                return true
+            val w1 = words[i].replace(Regex("[.,?!।\"'\\-]"), "").lowercase()
+            val w2 = words[i + 1].replace(Regex("[.,?!।\"'\\-]"), "").lowercase()
+            if (w1.length >= 2 && w1 == w2) {
+                val isReduplication = ALLOWED_REDUPLICATION_WORDS.contains(w1)
+                val repeatsThreeTimes = (i < words.size - 2) && words[i + 2].replace(Regex("[.,?!।\"'\\-]"), "").lowercase() == w1
+                if (repeatsThreeTimes || !isReduplication) {
+                    Log.w(TAG, "Detected immediate consecutive word repetition: \"$w1 $w2\" (repeats3=$repeatsThreeTimes, allowed=$isReduplication)")
+                    return true
+                }
             }
         }
 
@@ -206,9 +217,9 @@ object LlmOutputSanitizer {
                         // Ensure the remaining prefix doesn't retain consecutive duplicate words
                         val resWords = result.split(Regex("\\s+"))
                         val hasDup = (0 until resWords.size - 1).any { idx ->
-                            val w1 = resWords[idx].replace(Regex("[.,?!।\"'\\-]"), "")
-                            val w2 = resWords[idx + 1].replace(Regex("[.,?!।\"'\\-]"), "")
-                            w1.length >= 2 && w1.equals(w2, ignoreCase = true)
+                            val w1 = resWords[idx].replace(Regex("[.,?!।\"'\\-]"), "").lowercase()
+                            val w2 = resWords[idx + 1].replace(Regex("[.,?!।\"'\\-]"), "").lowercase()
+                            w1.length >= 2 && w1 == w2 && !ALLOWED_REDUPLICATION_WORDS.contains(w1)
                         }
                         if (!hasDup && !hasDegenerativeRepetition(result)) {
                             Log.i(TAG, "Sanitized repetition loop from ${words.size} words down to ${cleanTokens.size}: \"$result\"")
@@ -294,20 +305,32 @@ object LlmOutputSanitizer {
      * Quick check whether an L2 phrase is valid and safe to display.
      */
     fun isValidL2Output(text: String, lang: String): Boolean {
-        if (text.isBlank() || text.length < 3) return false
+        if (text.isBlank() || text.length < 2) return false
         val clean = stripPlaceholders(text)
-        if (clean.length < 3) return false
+        if (clean.length < 2) return false
 
         val words = clean.split(Regex("\\s+")).filter { it.isNotBlank() }
-        if (words.size < 2) return false
+        // If it's a 1-word response, accept short affirmative or polite workplace words
+        if (words.size == 1) {
+            val singleWord = words[0].replace(Regex("[.,?!।\"'\\-]"), "").lowercase()
+            val isCommonAffirmation = singleWord in setOf(
+                "होय", "हो", "नाही", "नक्कीच", "छान", "बढ़िया", "धन्यवाद", "नमस्ते", "नमस्कार", "ठीक", "சரி", "సరే", "ಹೌದು", "ശരി", "হ্যাঁ", "હા"
+            )
+            if (!isCommonAffirmation && singleWord.length < 3) return false
+            return matchesScript(clean, lang)
+        }
 
-        // Reject consecutive duplicate words
+        // Check consecutive duplicate words (respecting natural reduplication)
         for (i in 0 until words.size - 1) {
-            val w1 = words[i].replace(Regex("[.,?!।\"'\\-]"), "")
-            val w2 = words[i + 1].replace(Regex("[.,?!।\"'\\-]"), "")
-            if (w1.length >= 2 && w1.equals(w2, ignoreCase = true)) {
-                Log.w(TAG, "Rejected L2 with consecutive duplicate word: \"$w1 $w2\"")
-                return false
+            val w1 = words[i].replace(Regex("[.,?!।\"'\\-]"), "").lowercase()
+            val w2 = words[i + 1].replace(Regex("[.,?!।\"'\\-]"), "").lowercase()
+            if (w1.length >= 2 && w1 == w2) {
+                val isReduplication = ALLOWED_REDUPLICATION_WORDS.contains(w1)
+                val repeatsThreeTimes = (i < words.size - 2) && words[i + 2].replace(Regex("[.,?!।\"'\\-]"), "").lowercase() == w1
+                if (repeatsThreeTimes || !isReduplication) {
+                    Log.w(TAG, "Rejected L2 with consecutive duplicate word: \"$w1 $w2\"")
+                    return false
+                }
             }
         }
 

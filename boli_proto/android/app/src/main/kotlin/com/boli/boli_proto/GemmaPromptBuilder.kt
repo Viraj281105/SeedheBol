@@ -236,35 +236,36 @@ object GemmaPromptBuilder {
             if (turnNumber >= maxTurns) {
                 appendLine("FINAL TURN: Acknowledge what the learner said and conclude the conversation naturally in 1 sentence in $l2Script.")
             } else {
-                appendLine("TASK: Respond directly to what the Learner said in their latest turn.")
+                appendLine("TASK: Respond directly to what the Learner said in their latest turn as $persona.")
             }
-            appendLine("Keep your L2 response to EXACTLY ONE clear spoken sentence (under 15 words) in authentic $l2Script.")
-            appendLine("Rate the learner's spoken fluency from 0 to 100 based on their actual utterance.")
+            appendLine("Keep your L2 response to EXACTLY ONE spoken sentence (under 14 words) in authentic $l2Script.")
+            appendLine("DO NOT repeat or echo the Learner's words. DO NOT repeat your own previous question.")
             appendLine()
-            appendLine("Example turn format:")
-            appendLine("Learner: चहा कितीचा आहे?")
-            appendLine("L2: एक कप चहा दहा रुपयांचा आहे.")
-            appendLine("L1: एक कप चाय दस रुपये की है।")
+            appendLine("Example:")
+            appendLine("Previous Bot: सिमेंटचा साठा पुरेसा आहे का?")
+            appendLine("Learner: होय साहेब, पुरेसा आहे.")
+            appendLine("L2: छान, मग काम सुरू करा आणि काळजी घ्या.")
+            appendLine("L1: बढ़िया, फिर काम शुरू कीजिए और ध्यान रखिए।")
             appendLine("FLUENCY: 85")
-            appendLine("BETTER: एक चहा द्या.")
-            appendLine("FEEDBACK: आपने सही और स्पष्ट सवाल पूछा।")
-            appendLine("HINT: none")
+            appendLine("BETTER: होय साहेब, आजच्या कामासाठी साठा पुरेसा आहे.")
+            appendLine("FEEDBACK: उत्तर स्पष्ट आणि चांगले आहे.")
+            appendLine("HINT: काळजी शब्द स्पष्ट बोला.")
             appendLine()
             appendLine("Current conversation history:")
             for (turn in history.takeLast(2)) {
-                val speaker = if (turn.speaker == "user") "Learner" else "You ($persona)"
+                val speaker = if (turn.speaker == "user") "Learner" else "Previous Bot"
                 appendLine("$speaker: ${turn.text}")
             }
             appendLine()
-            appendLine("Strict format (output ONLY these 6 tags, no markdown, no ##, no quotes):")
-            appendLine("L2: Your direct response in $l2Script (1 sentence)")
+            appendLine("Strict format (output EXACTLY these 6 tags on separate lines, no markdown, no ##, no quotes):")
+            appendLine("L2: Your 1-sentence response in $l2Script to the Learner")
             appendLine("L1: Meaning of your response in $l1Script")
-            appendLine("FLUENCY: 0 to 100 score rating learner's fluency and naturalness")
+            appendLine("FLUENCY: 0 to 100 integer rating the learner's actual utterance")
             appendLine("BETTER: Polite natural phrasing the learner could have used in $l2Script")
-            appendLine("FEEDBACK: 1 short sentence in $l1Script acknowledging the learner")
+            appendLine("FEEDBACK: 1 short sentence in $l1Script giving constructive feedback to the learner")
             appendLine("HINT: One short pronunciation tip in $l1Script, or write none")
             appendLine()
-            appendLine("CRITICAL: Output ONLY authentic $l2Name in L2. Do NOT write in $l1Name in L2.")
+            appendLine("CRITICAL: Output ONLY authentic $l2Name in L2. Respond to the Learner. Never parrot.")
         }
         return wrapTurn(userPrompt)
     }
@@ -391,10 +392,16 @@ object GemmaPromptBuilder {
             appendLine("WORD: धोका = खतरा (dhoka)")
             appendLine("WORD: पुढे = आगे (pudhe)")
             appendLine("PRACTICE: येथे काळजीपूर्वक काम करा.")
-            appendLine()
             appendLine("--- New Task ---")
-            appendLine("Signboard: \"$ocrText\"")
-            appendLine("TOPIC:")
+            val cleanOcr = if (ocrText.length > 250) ocrText.take(250) else ocrText
+            appendLine("Signboard: \"$cleanOcr\"")
+            appendLine()
+            appendLine("Generate the micro-lesson strictly following the tags below (no markdown):")
+            appendLine("TOPIC: Title in ${ctx.l2}")
+            appendLine("TRANSLATION: Translation in ${ctx.l1}")
+            appendLine("EXPLANATION: Workplace meaning in ${ctx.l1}")
+            appendLine("WORD: <${ctx.l2} word> = <${ctx.l1} meaning> (<roman pronunciation>)")
+            appendLine("PRACTICE: Short spoken sentence in ${ctx.l2}")
         }
         return wrapTurn(userPrompt)
     }

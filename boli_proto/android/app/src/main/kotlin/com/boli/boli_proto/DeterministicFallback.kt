@@ -246,6 +246,18 @@ class DeterministicFallback {
                         better = "साहेब, मी दिलेले काम पूर्ण केले आहे. तपासून पाहा.",
                         hint = "‘पूर्ण’ चा रफार स्पष्ट उच्चारा."
                     )
+                    userLower.contains("बिघाड नाही") || userLower.contains("खराबी नहीं") || userLower.contains("काही बिघाड") || userLower.contains("चालू आहे") || userLower.contains("व्यवस्थित आहे") -> FallbackRoleplayData(
+                        l2 = "छान, मग मशिन व्यवस्थित चालवा आणि काम सुरू करा. काही अडचण आली तर मला सांगा.",
+                        l1 = "बढ़िया, फिर मशीन ठीक से चलाएं और काम शुरू करें। कोई परेशानी हो तो मुझे बताएं।",
+                        better = "होय साहेब, सर्व अवजारे आणि मशिन व्यवस्थित चालू आहेत.",
+                        hint = "‘व्यवस्थित’ उच्चारताना ‘स्थि’ वर जोर द्या."
+                    )
+                    userLower.contains("आणली") || userLower.contains("मडली") || userLower.contains("आणले") || userLower.contains("घेऊन") || userLower.contains("लाए") -> FallbackRoleplayData(
+                        l2 = "उत्तम! सामान जागेवर ठेवा आणि सुरक्षितपणे कामाला सुरुवात करा.",
+                        l1 = "उत्तम! सामान जगह पर रखें और सावधानी से काम शुरू करें।",
+                        better = "होय साहेब, मी आवश्यक सामान आणले आहे.",
+                        hint = "‘सुरुवात’ स्पष्ट उच्चारा."
+                    )
                     userLower.contains("नाही") || userLower.contains("नहीं") || userLower.contains("no") -> FallbackRoleplayData(
                         l2 = "काही अडचण नाही. आधी व्यवस्थित समजून घ्या आणि मग सुरू करा.",
                         l1 = "कोई बात नहीं। पहले ठीक से समझ लीजिए और फिर शुरू कीजिए।",

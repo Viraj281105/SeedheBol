@@ -223,6 +223,8 @@ class _DailyMissionScreenState extends State<DailyMissionScreen> {
           'situation_id': 'Daily Mission: $_title',
           'current_node_id': 'mission_turn_$_currentTurnIndex',
           'user_spoken_text': transcript,
+          'turn_number': _currentTurnIndex + 1,
+          'max_turns': _maxTurns,
         },
       );
 

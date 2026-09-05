@@ -134,4 +134,109 @@ class LlmReliabilityTest {
         assertFalse(LlmOutputSanitizer.hasDegenerativeRepetition(sanitized!!))
         assertTrue(sanitized.startsWith("काम पूर्ण झाले आहे"))
     }
+
+    @Test
+    fun testAuthenticIndicReduplicationDoesNotTriggerDegenerativeRepetition() {
+        val authenticReduplications = listOf(
+            "हळू हळू चाला" to "mr",
+            "लवकर लवकर काम करा" to "mr",
+            "गरम गरम चहा घ्या" to "mr",
+            "नवीन नवीन गोष्टी शिका" to "mr",
+            "जाता जाता सामान आणा" to "mr",
+            "रोज रोज हेच काम आहे" to "mr",
+            "थोडे थोडे पाणी प्या" to "mr",
+            "बारीक बारीक विटा लावा" to "mr",
+            "साफ साफ सांगा" to "mr",
+        )
+
+        for ((phrase, lang) in authenticReduplications) {
+            assertFalse(
+                "Authentic reduplication '$phrase' should NOT be flagged as repetitive",
+                LlmOutputSanitizer.hasDegenerativeRepetition(phrase)
+            )
+            assertTrue(
+                "Authentic reduplication '$phrase' must be valid L2 output",
+                LlmOutputSanitizer.isValidL2Output(phrase, lang)
+            )
+        }
+    }
+
+    @Test
+    fun testCatastrophicThreePlusRepeatsAreCaught() {
+        val degenerative3Plus = listOf(
+            "लगेगा लगेगा लगेगा",
+            "पार्य पार्य पार्य",
+            "काम काम काम काम",
+            "होय होय होय होय",
+        )
+
+        for (phrase in degenerative3Plus) {
+            assertTrue(
+                "3+ identical repeats '$phrase' MUST be caught as degenerative",
+                LlmOutputSanitizer.hasDegenerativeRepetition(phrase)
+            )
+        }
+    }
+
+    @Test
+    fun testSingleWordPoliteAffirmationsPassIsValidL2() {
+        val politeSingles = listOf(
+            "होय.",
+            "नक्कीच!",
+            "धन्यवाद!",
+            "बरं.",
+        )
+
+        for (word in politeSingles) {
+            assertTrue(
+                "Polite single word '$word' must pass isValidL2Output",
+                LlmOutputSanitizer.isValidL2Output(word, "mr")
+            )
+        }
+    }
+
+    @Test
+    fun testComprehensiveTagExtractionForDailyMissionAndListenAround() {
+        val rawDailyMissionOutput = """
+            TITLE: Safety Helmet Check
+            NATIVE_TITLE: हेल्मेट तपासणी
+            NPC_ROLE: Site Supervisor
+            OBJECTIVE: Confirm you have worn safety gear
+            OBJECTIVE_NATIVE: तुम्ही हेल्मेट घातले आहे याची खात्री करा
+            OPENER_L2: अरे भावा, आज हेल्मेट घातले आहेस का?
+            OPENER_L1: अरे भाई, आज हेलमेट पहना है क्या?
+            TARGET_WORDS: हेल्मेट, सुरक्षा, होय
+            MAX_TURNS: 3
+        """.trimIndent()
+
+        val lines = BoliAiLayer.normalizeLlmOutputToLines(rawDailyMissionOutput)
+        assertEquals("Safety Helmet Check", BoliAiLayer.findTagValue(lines, "TITLE"))
+        assertEquals("हेल्मेट तपासणी", BoliAiLayer.findTagValue(lines, "NATIVE_TITLE"))
+        assertEquals("Site Supervisor", BoliAiLayer.findTagValue(lines, "NPC_ROLE"))
+        assertEquals("Confirm you have worn safety gear", BoliAiLayer.findTagValue(lines, "OBJECTIVE"))
+        assertEquals("तुम्ही हेल्मेट घातले आहे याची खात्री करा", BoliAiLayer.findTagValue(lines, "OBJECTIVE_NATIVE"))
+        assertEquals("अरे भावा, आज हेल्मेट घातले आहेस का?", BoliAiLayer.findTagValue(lines, "OPENER_L2"))
+        assertEquals("अरे भाई, आज हेलमेट पहना है क्या?", BoliAiLayer.findTagValue(lines, "OPENER_L1"))
+        assertEquals("हेल्मेट, सुरक्षा, होय", BoliAiLayer.findTagValue(lines, "TARGET_WORDS"))
+        assertEquals("3", BoliAiLayer.findTagValue(lines, "MAX_TURNS"))
+
+        val rawListenAroundOutput = """
+            HEARD: काम संपल्यावर अवजारे जागेवर ठेवा
+            MEANING: काम खत्म होने पर औजार अपनी जगह पर रखें
+            TONE_INTENT: कार्यस्थळ सूचना (Workplace instruction)
+            IMPORTANT_WORDS: अवजारे:औजार, जागेवर:जगह पर
+            NATURAL_REPLY: होय साहेब, मी लगेच ठेवतो
+            REPLY_NATIVE: जी साहब, मैं तुरंत रख देता हूँ
+            REPLY_ROMAN: Hoy saheb, mee lagech thevto
+        """.trimIndent()
+
+        val listenLines = BoliAiLayer.normalizeLlmOutputToLines(rawListenAroundOutput)
+        assertEquals("काम संपल्यावर अवजारे जागेवर ठेवा", BoliAiLayer.findTagValue(listenLines, "HEARD"))
+        assertEquals("काम खत्म होने पर औजार अपनी जगह पर रखें", BoliAiLayer.findTagValue(listenLines, "MEANING"))
+        assertEquals("कार्यस्थळ सूचना (Workplace instruction)", BoliAiLayer.findTagValue(listenLines, "TONE_INTENT"))
+        assertEquals("अवजारे:औजार, जागेवर:जगह पर", BoliAiLayer.findTagValue(listenLines, "IMPORTANT_WORDS"))
+        assertEquals("होय साहेब, मी लगेच ठेवतो", BoliAiLayer.findTagValue(listenLines, "NATURAL_REPLY"))
+        assertEquals("जी साहब, मैं तुरंत रख देता हूँ", BoliAiLayer.findTagValue(listenLines, "REPLY_NATIVE"))
+        assertEquals("Hoy saheb, mee lagech thevto", BoliAiLayer.findTagValue(listenLines, "REPLY_ROMAN"))
+    }
 }
