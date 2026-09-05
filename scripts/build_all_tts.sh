@@ -32,7 +32,7 @@ for L in "${LANGS[@]}"; do
 
   if [ ! -d "$DIR/$L" ]; then
     echo "  downloading ${L}.zip …"
-    curl -sL "$BASE/${L}.zip" -o "$DIR/${L}.zip" || { echo "  DOWNLOAD FAILED"; continue; }
+    curl -L --retry 3 --retry-delay 2 --continue-at - "$BASE/${L}.zip" -o "$DIR/${L}.zip" || { echo "  DOWNLOAD FAILED"; continue; }
     SZ=$(stat -c%s "$DIR/${L}.zip" 2>/dev/null || echo 0)
     if [ "$SZ" -lt 100000000 ]; then
       echo "  DOWNLOAD TOO SMALL ($SZ bytes) — skipping"
@@ -40,7 +40,7 @@ for L in "${LANGS[@]}"; do
       continue
     fi
     echo "  extracting … ($((SZ / 1000000)) MB)"
-    unzip -q -o "$DIR/${L}.zip" -d "$DIR" || { echo "  UNZIP FAILED"; continue; }
+    "$PY" -m zipfile -e "$DIR/${L}.zip" "$DIR" || { echo "  UNZIP FAILED"; continue; }
     rm -f "$DIR/${L}.zip"
   fi
 

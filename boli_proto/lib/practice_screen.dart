@@ -387,8 +387,12 @@ class _SpeakState extends State<_Speak> {
     final x = norm(a), y = norm(b);
     if (x.isEmpty || y.isEmpty) return 0;
     final d = List.generate(x.length + 1, (_) => List<int>.filled(y.length + 1, 0));
-    for (var i = 0; i <= x.length; i++) d[i][0] = i;
-    for (var j = 0; j <= y.length; j++) d[0][j] = j;
+    for (var i = 0; i <= x.length; i++) {
+      d[i][0] = i;
+    }
+    for (var j = 0; j <= y.length; j++) {
+      d[0][j] = j;
+    }
     for (var i = 1; i <= x.length; i++) {
       for (var j = 1; j <= y.length; j++) {
         final cost = x[i - 1] == y[j - 1] ? 0 : 1;
