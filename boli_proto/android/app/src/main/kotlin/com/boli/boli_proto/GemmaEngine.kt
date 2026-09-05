@@ -178,22 +178,54 @@ class GemmaEngine(private val context: Context) {
     // -------------------------------------------------------------------------
 
     private fun resolveModelFile(): File? {
-        val extDir = context.getExternalFilesDir(null) ?: return null
+        val extDir = context.getExternalFilesDir(null)
 
-        for (filename in CANDIDATE_FILENAMES) {
-            // Primary: subfolder (recommended — keeps the external dir tidy)
-            val inSubfolder = File(extDir, "gemma/$filename")
-            if (inSubfolder.exists() && inSubfolder.length() > MIN_MODEL_SIZE_BYTES) {
-                Log.i(TAG, "Gemma model @ ${inSubfolder.absolutePath} " +
-                        "(${inSubfolder.length() / 1_048_576}MB)")
-                return inSubfolder
+        // 1. External pushed files take precedence (allows adb push hot-swapping)
+        if (extDir != null) {
+            for (filename in CANDIDATE_FILENAMES) {
+                val inSubfolder = File(extDir, "gemma/$filename")
+                if (inSubfolder.exists() && inSubfolder.length() > MIN_MODEL_SIZE_BYTES) {
+                    Log.i(TAG, "Gemma model (external) @ ${inSubfolder.absolutePath} " +
+                            "(${inSubfolder.length() / 1_048_576}MB)")
+                    return inSubfolder
+                }
+
+                val flat = File(extDir, filename)
+                if (flat.exists() && flat.length() > MIN_MODEL_SIZE_BYTES) {
+                    Log.i(TAG, "Gemma model (flat) @ ${flat.absolutePath}")
+                    return flat
+                }
             }
+        }
 
-            // Fallback: directly in the external files dir (no subfolder)
-            val flat = File(extDir, filename)
-            if (flat.exists() && flat.length() > MIN_MODEL_SIZE_BYTES) {
-                Log.i(TAG, "Gemma model (flat) @ ${flat.absolutePath}")
-                return flat
+        // 2. Check internal filesDir (already unpacked from APK assets)
+        for (filename in CANDIDATE_FILENAMES) {
+            val internalFile = File(context.filesDir, filename)
+            if (internalFile.exists() && internalFile.length() > MIN_MODEL_SIZE_BYTES) {
+                Log.i(TAG, "Gemma model (internal filesDir) @ ${internalFile.absolutePath}")
+                return internalFile
+            }
+        }
+
+        // 3. Check and unpack from APK assets if bundled
+        for (filename in CANDIDATE_FILENAMES) {
+            try {
+                val assetList = context.assets.list("") ?: emptyArray()
+                if (filename in assetList) {
+                    val dst = File(context.filesDir, filename)
+                    Log.i(TAG, "Unpacking bundled Gemma model $filename from APK assets...")
+                    context.assets.open(filename).use { input ->
+                        dst.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    if (dst.exists() && dst.length() > MIN_MODEL_SIZE_BYTES) {
+                        Log.i(TAG, "Successfully unpacked bundled Gemma model (${dst.length() / 1_048_576}MB)")
+                        return dst
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not unpack $filename from assets", e)
             }
         }
 

@@ -40,6 +40,7 @@ class FastPitchTts(private val context: Context) {
     private val env: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
 
     private val fastpitch: OrtSession by lazy {
+        resolveAsset("fastpitch.onnx.data")
         env.createSession(resolveAsset(FASTPITCH_MODEL).absolutePath, cpuOptions())
     }
     private val hifigan: OrtSession by lazy {

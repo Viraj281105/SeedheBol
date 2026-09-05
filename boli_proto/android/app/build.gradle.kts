@@ -34,7 +34,7 @@ android {
 
     androidResources {
         // Keep the model uncompressed so unpacking to filesDir is a straight copy.
-        noCompress += listOf("onnx", "wav", "bin", "task")
+        noCompress += listOf("onnx", "wav", "bin", "task", "data", "json")
     }
 
     buildTypes {
