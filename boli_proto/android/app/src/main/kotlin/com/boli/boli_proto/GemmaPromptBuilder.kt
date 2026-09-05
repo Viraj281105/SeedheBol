@@ -172,36 +172,31 @@ object GemmaPromptBuilder {
 
     /**
      * Generates Gemma's opening conversational line for a roleplay persona.
-     * Optionally accepts a [scenarioAngle] to ensure fresh, varied workplace openers.
+     * Accepts [scenarioAngle] and [mood] to ensure fresh, varied workplace openers.
      */
     fun buildRoleplayOpenerPrompt(
         persona: String,
         scenario: String,
         ctx: GemmaContext,
         scenarioAngle: String? = null,
+        mood: String? = null,
     ): String {
         val (l2Name, l2Script) = getLanguageScriptName(ctx.l2)
         val (l1Name, l1Script) = getLanguageScriptName(ctx.l1)
-        val (exL2, exL1) = getRoleplayOpenerExemplar(ctx.l2, ctx.l1)
 
         val userPrompt = buildString {
-            appendLine(systemHeader(ctx))
-            appendLine()
-            appendLine("ROLE: You play a $persona speaking in $l2Name ($l2Script).")
-            appendLine("SCENARIO: $scenario")
+            val moodText = if (!mood.isNullOrBlank()) " with mood '$mood'" else ""
+            appendLine("You are playing $persona$moodText speaking in $l2Name ($l2Script) to a ${ctx.occupation}.")
+            appendLine("Workplace situation: $scenario.")
             if (!scenarioAngle.isNullOrBlank()) {
-                appendLine("SPECIFIC SITUATION ANGLE: $scenarioAngle")
+                appendLine("SPECIFIC SITUATION TOPIC: $scenarioAngle")
             }
-            appendLine("TASK: Speak your opening line or ask your opening question to start the conversation naturally.")
+            appendLine("TASK: Speak your opening question or statement to start the conversation naturally.")
             appendLine("Keep it to EXACTLY ONE short spoken sentence (under 12 words) in authentic $l2Name.")
             appendLine("Do NOT ask for names. Do NOT use brackets or placeholders.")
             appendLine()
-            appendLine("Example format:")
-            appendLine("L2: $exL2")
-            appendLine("L1: $exL1")
-            appendLine()
-            appendLine("Format strictly as follows (no angle brackets, no markdown):")
-            appendLine("L2: Your opening line in $l2Script")
+            appendLine("Format strictly as follows (no markdown, no extra commentary):")
+            appendLine("L2: Your opening line in $l2Script (1 short sentence)")
             appendLine("L1: Meaning of your line in $l1Script")
             appendLine()
             appendLine("CRITICAL: Output ONLY authentic $l2Name in L2. Do NOT write in $l1Name in L2.")
@@ -218,7 +213,7 @@ object GemmaPromptBuilder {
      *
      * Instructs the model to:
      *   1. Understand user intent semantically (tolerate broken grammar or slang).
-     *   2. Respond naturally in persona (supervisor, shopkeeper, guard, coworker).
+     *   2. Respond naturally in persona with given mood.
      *   3. Evaluate the learner's fluency on a 0-100 scale.
      *   4. Suggest a more natural/polite phrasing for the learner ("Better Way").
      *   5. Provide native L1 comprehension and articulation tips.
@@ -228,125 +223,50 @@ object GemmaPromptBuilder {
         ctx: GemmaContext,
         turnNumber: Int = 1,
         maxTurns: Int = 5,
+        mood: String? = null,
     ): String {
         val (l2Name, l2Script) = getLanguageScriptName(ctx.l2)
         val (l1Name, l1Script) = getLanguageScriptName(ctx.l1)
         val persona = ctx.scenario ?: "workplace supervisor"
-        val exemplar = getRoleplayTurnExemplar(ctx.l2, ctx.l1)
 
         val userPrompt = buildString {
-            appendLine(systemHeader(ctx))
-            appendLine()
-            appendLine("ROLE: You play a $persona speaking in $l2Name ($l2Script).")
+            val moodText = if (!mood.isNullOrBlank()) " ($mood)" else ""
+            appendLine("You are playing $persona$moodText speaking in $l2Name ($l2Script) to a ${ctx.occupation}.")
             appendLine("SESSION PROGRESS: Turn $turnNumber of $maxTurns.")
             if (turnNumber >= maxTurns) {
-                appendLine("FINAL TURN: Conclude the conversation naturally with a brief closing statement or acknowledgment in L2.")
+                appendLine("FINAL TURN: Acknowledge what the learner said and conclude the conversation naturally in 1 sentence in $l2Script.")
             } else {
-                appendLine("TASK: Continue the workplace conversation by responding directly to what the Learner said.")
+                appendLine("TASK: Respond directly to what the Learner said in their latest turn.")
             }
-            appendLine("IMPORTANT: Directly answer or address what the Learner said in their latest turn.")
-            appendLine("Keep your L2 response to EXACTLY ONE clear spoken sentence (under 15 words).")
-            appendLine("Do NOT repeat the learner's words. Do NOT repeat your own previous line.")
-            if (ctx.frequentlyMissedWords.isNotEmpty()) {
-                appendLine("Reinforce: ${ctx.frequentlyMissedWords.take(2).joinToString(", ")}.")
-            }
+            appendLine("Keep your L2 response to EXACTLY ONE clear spoken sentence (under 15 words) in authentic $l2Script.")
+            appendLine("Rate the learner's spoken fluency from 0 to 100 based on their actual utterance.")
             appendLine()
-            appendLine("Example format:")
-            appendLine("Learner: ${exemplar.learner}")
-            appendLine("L2: ${exemplar.l2}")
-            appendLine("L1: ${exemplar.l1}")
-            appendLine("FLUENCY: ${exemplar.fluency}")
-            appendLine("BETTER: ${exemplar.better}")
-            appendLine("FEEDBACK: ${exemplar.feedback}")
-            appendLine("HINT: ${exemplar.hint}")
+            appendLine("Example turn format:")
+            appendLine("Learner: चहा कितीचा आहे?")
+            appendLine("L2: एक कप चहा दहा रुपयांचा आहे.")
+            appendLine("L1: एक कप चाय दस रुपये की है।")
+            appendLine("FLUENCY: 85")
+            appendLine("BETTER: एक चहा द्या.")
+            appendLine("FEEDBACK: आपने सही और स्पष्ट सवाल पूछा।")
+            appendLine("HINT: none")
             appendLine()
             appendLine("Current conversation history:")
-            for (turn in history.takeLast(4)) {
+            for (turn in history.takeLast(2)) {
                 val speaker = if (turn.speaker == "user") "Learner" else "You ($persona)"
                 appendLine("$speaker: ${turn.text}")
             }
             appendLine()
-            appendLine("Format strictly as follows (no angle brackets, no markdown):")
-            appendLine("L2: Your natural response in $l2Script (1 sentence)")
+            appendLine("Strict format (output ONLY these 6 tags, no markdown, no ##, no quotes):")
+            appendLine("L2: Your direct response in $l2Script (1 sentence)")
             appendLine("L1: Meaning of your response in $l1Script")
-            appendLine("FLUENCY: Score from 0 to 100 rating learner's fluency and naturalness")
-            appendLine("BETTER: Polite phrasing the learner could have used in $l2Script")
-            appendLine("FEEDBACK: 1 short sentence in $l1Script acknowledging learner")
-            appendLine("HINT: One short pronunciation tip, or write none")
+            appendLine("FLUENCY: 0 to 100 score rating learner's fluency and naturalness")
+            appendLine("BETTER: Polite natural phrasing the learner could have used in $l2Script")
+            appendLine("FEEDBACK: 1 short sentence in $l1Script acknowledging the learner")
+            appendLine("HINT: One short pronunciation tip in $l1Script, or write none")
             appendLine()
             appendLine("CRITICAL: Output ONLY authentic $l2Name in L2. Do NOT write in $l1Name in L2.")
         }
         return wrapTurn(userPrompt)
-    }
-
-    private data class RoleplayExemplar(
-        val learner: String,
-        val l2: String,
-        val l1: String,
-        val fluency: Int,
-        val better: String,
-        val feedback: String,
-        val hint: String,
-    )
-
-    private fun getRoleplayOpenerExemplar(l2: String, l1: String): Pair<String, String> {
-        val l2Lower = l2.lowercase()
-        return when {
-            l2Lower.startsWith("mr") || l2Lower.contains("marathi") ->
-                "अरे भावा, आजचे काम वेळेवर सुरू झाले का?" to "अरे भाई, आज का काम समय पर शुरू हुआ क्या?"
-            l2Lower.startsWith("ta") || l2Lower.contains("tamil") ->
-                "வணக்கம் தோழா, இன்றைய வேலை சரியான நேரத்தில் தொடங்கியதா?" to "नमस्ते भाई, आज का काम समय पर शुरू हुआ क्या?"
-            l2Lower.startsWith("te") || l2Lower.contains("telugu") ->
-                "నమస్తే భయ్యా, ఈ రోజు పని సరైన సమయానికి మొదలైందా?" to "नमस्ते भाई, आज का काम समय पर शुरू हुआ क्या?"
-            l2Lower.startsWith("kn") || l2Lower.contains("kannada") ->
-                "ನಮಸ್ಕಾರ ಅಣ್ಣ, ಇಂದಿನ ಕೆಲಸ ಸರಿಯಾದ ಸಮಯಕ್ಕೆ ಪ್ರಾರಂಭವಾಯಿತಾ?" to "नमस्ते भाई, आज का काम समय पर शुरू हुआ क्या?"
-            l2Lower.startsWith("bn") || l2Lower.contains("bengali") ->
-                "নমস্কার ভাই, আজকের কাজ কি সময়মতো শুরু হয়েছে?" to "नमस्ते भाई, आज का काम समय पर शुरू हुआ क्या?"
-            else ->
-                "अरे भाई, आज का काम समय पर शुरू हुआ क्या?" to "अरे भावा, आजचे काम वेळेवर सुरू झाले का?"
-        }
-    }
-
-    private fun getRoleplayTurnExemplar(l2: String, l1: String): RoleplayExemplar {
-        val l2Lower = l2.lowercase()
-        return when {
-            l2Lower.startsWith("mr") || l2Lower.contains("marathi") -> RoleplayExemplar(
-                learner = "पाणी कुठे आहे?",
-                l2 = "तिथे पाण्याच्या टाकीजवळ जा, तिथे पिण्याचे पाणी आहे.",
-                l1 = "वहां पानी की टंकी के पास जाओ, वहां पीने का पानी है।",
-                fluency = 88,
-                better = "पिण्याचे पाणी कुठे मिळेल साहेब?",
-                feedback = "तुम्ही पाणी विचारले, ते अगदी बरोबर समजले.",
-                hint = "पाणी उच्चारताना णी चा उच्चार जिभ टाळूला लावून करा.",
-            )
-            l2Lower.startsWith("ta") || l2Lower.contains("tamil") -> RoleplayExemplar(
-                learner = "தண்ணீர் எங்கே?",
-                l2 = "அங்கே தண்ணீர் தொட்டி அருகில் செல்லுங்கள்.",
-                l1 = "வहां पानी की टंकी के पास जाओ।",
-                fluency = 85,
-                better = "குடிநீர் எங்கே கிடைக்கும் ஐயா?",
-                feedback = "நீங்கள் தண்ணீர் கேட்டது சரியாகப் புரிந்தது.",
-                hint = "தண்ணீர் என தெளிவாக உச்சரிக்கவும்.",
-            )
-            l2Lower.startsWith("te") || l2Lower.contains("telugu") -> RoleplayExemplar(
-                learner = "నీళ్ళు ఎక్కడ ఉన్నాయి?",
-                l2 = "అక్కడ వాటర్ ట్యాంక్ దగ్గరికి వెళ్ళండి.",
-                l1 = "వहां पानी की टंकी के पास जाओ।",
-                fluency = 85,
-                better = "మంచి నీళ్ళు ఎక్కడ దొరుకుతాయి సార్?",
-                feedback = "మీరు నీళ్ళ గురించి అడిగారు, బాగా చెప్పారు.",
-                hint = "నీళ్ళు అని స్పష్టంగా పలకండి.",
-            )
-            else -> RoleplayExemplar(
-                learner = "पानी कहाँ मिलेगा?",
-                l2 = "वहां पानी की टंकी के पास जाओ, पीने का पानी वहीं है।",
-                l1 = "तिथे पाण्याच्या टाकीजवळ जा, तिथे पिण्याचे पाणी आहे.",
-                fluency = 85,
-                better = "पीने का पानी कहाँ मिलेगा सर?",
-                feedback = "आपने पानी के बारे में पूछा, बहुत अच्छा बोला।",
-                hint = "पानी बोलते समय नी का उच्चारण साफ करें।",
-            )
-        }
     }
 
     /**

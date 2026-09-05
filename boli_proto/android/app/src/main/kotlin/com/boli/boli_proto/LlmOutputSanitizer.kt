@@ -26,6 +26,18 @@ object LlmOutputSanitizer {
         if (trimmed.length < 20) return false
 
         val words = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (words.size < 2) return false
+
+        // Check 0: Immediate consecutive word repetition (e.g. "लगेगा लगेगा")
+        for (i in 0 until words.size - 1) {
+            val w1 = words[i].replace(Regex("[.,?!।\"'\\-]"), "")
+            val w2 = words[i + 1].replace(Regex("[.,?!।\"'\\-]"), "")
+            if (w1.length >= 2 && w1.equals(w2, ignoreCase = true)) {
+                Log.w(TAG, "Detected immediate consecutive word repetition: \"$w1 $w2\"")
+                return true
+            }
+        }
+
         if (words.size < 5) return false
 
         // Check 1: Consecutive n-gram repetition (n = 2, 3, 4)
@@ -153,8 +165,17 @@ object LlmOutputSanitizer {
      */
     fun isHindiIntrusionForMarathi(text: String): Boolean {
         val clean = text.lowercase()
-        val hindiMarkers = listOf("आपका", "क्या है", "नाम क्या", "है क्या", "में आपका", "मुझे बताओ", "आप कहाँ", "आप कैसे", "नहीं है", "कर रहे हो", "करता हूँ")
-        val marathiMarkers = listOf("आहे", "नाही", "काय", "कसे", "आले", "केले", "झाले", "होते", "तुम्ही", "मला", "आपण", "करा", "सांगा", "घ्या", "द्या", "कुठे", "कधी", "भावा", "साहेब", "सुट्टे", "पाहिजे")
+        val hindiMarkers = listOf(
+            "आपका", "आपकी", "आपके", "क्या है", "नाम क्या", "है क्या", "में आपका",
+            "मुझे बताओ", "आप कहाँ", "आप कैसे", "नहीं है", "कर रहे हो", "करता हूँ",
+            "लगेगा", "लगेगी", "करेगा", "करेगी", "होगा", "होगी", "सकता", "सकती",
+            "चाहिए", "बोलो", "बताओ", "क्यों", "अच्छा", "मान्य", "नहीं", "आप "
+        )
+        val marathiMarkers = listOf(
+            "आहे", "नाही", "काय", "कसे", "आले", "केले", "झाले", "होते", "तुम्ही",
+            "मला", "आपण", "करा", "सांगा", "घ्या", "द्या", "कुठे", "कधी", "भावा",
+            "साहेब", "सुट्टे", "पाहिजे", "नवीन", "साठा", "काम", "वेळ", "गोदाम", "ठिकाणी"
+        )
 
         val hasHindi = hindiMarkers.any { clean.contains(it) }
         val hasMarathi = marathiMarkers.any { clean.contains(it) }
@@ -180,10 +201,22 @@ object LlmOutputSanitizer {
                 val g2 = words.subList(i + n, i + 2 * n).joinToString(" ")
                 if (g1.equals(g2, ignoreCase = true)) {
                     val cleanTokens = words.subList(0, i + n)
-                    if (cleanTokens.size >= 3) {
+                    if (cleanTokens.size >= 4) {
                         val result = cleanTokens.joinToString(" ").trim()
-                        Log.i(TAG, "Sanitized repetition loop from ${words.size} words down to ${cleanTokens.size}: \"$result\"")
-                        return result
+                        // Ensure the remaining prefix doesn't retain consecutive duplicate words
+                        val resWords = result.split(Regex("\\s+"))
+                        val hasDup = (0 until resWords.size - 1).any { idx ->
+                            val w1 = resWords[idx].replace(Regex("[.,?!।\"'\\-]"), "")
+                            val w2 = resWords[idx + 1].replace(Regex("[.,?!।\"'\\-]"), "")
+                            w1.length >= 2 && w1.equals(w2, ignoreCase = true)
+                        }
+                        if (!hasDup && !hasDegenerativeRepetition(result)) {
+                            Log.i(TAG, "Sanitized repetition loop from ${words.size} words down to ${cleanTokens.size}: \"$result\"")
+                            return result
+                        } else {
+                            Log.w(TAG, "Sanitized prefix still corrupted — rejecting as unusable: \"$result\"")
+                            return null
+                        }
                     } else {
                         Log.w(TAG, "Repetition began immediately at token $i — rejecting as corrupted")
                         return null
@@ -264,6 +297,19 @@ object LlmOutputSanitizer {
         if (text.isBlank() || text.length < 3) return false
         val clean = stripPlaceholders(text)
         if (clean.length < 3) return false
+
+        val words = clean.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (words.size < 2) return false
+
+        // Reject consecutive duplicate words
+        for (i in 0 until words.size - 1) {
+            val w1 = words[i].replace(Regex("[.,?!।\"'\\-]"), "")
+            val w2 = words[i + 1].replace(Regex("[.,?!।\"'\\-]"), "")
+            if (w1.length >= 2 && w1.equals(w2, ignoreCase = true)) {
+                Log.w(TAG, "Rejected L2 with consecutive duplicate word: \"$w1 $w2\"")
+                return false
+            }
+        }
 
         // Check for Hindi intrusion when target is Marathi
         val isMarathi = lang.lowercase().startsWith("mr") || lang.lowercase().contains("marathi")

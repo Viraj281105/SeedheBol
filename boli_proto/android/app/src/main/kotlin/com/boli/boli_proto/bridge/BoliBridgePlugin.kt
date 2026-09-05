@@ -262,24 +262,26 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val fallbackL2 = call.argument<String>("fallback_l2") ?: ""
         val fallbackL1 = call.argument<String>("fallback_l1") ?: ""
         val scenarioAngle = call.argument<String>("scenario_angle")
+        val mood = call.argument<String>("mood")
         pluginScope.launch {
             conversationHistory.clear()
             val ctx = memoryStore.buildPersonalizedGemmaContext(scenario = scenario)
-            val (l2, l1) = aiLayer.generateRoleplayOpener(
+            val opener = aiLayer.generateRoleplayOpener(
                 persona = persona,
                 scenario = scenario,
                 ctx = ctx,
                 fallbackL2 = fallbackL2,
                 fallbackL1 = fallbackL1,
                 scenarioAngle = scenarioAngle,
+                mood = mood,
             )
-            val isGemma = gemmaEngine.isAvailable && l2.isNotBlank() && l2 != fallbackL2
-            conversationHistory.add(DialogueTurn("bot", l2, l1Text = l1))
+            conversationHistory.add(DialogueTurn("bot", opener.l2, l1Text = opener.l1))
             withContext(Dispatchers.Main) {
                 result.success(mapOf(
-                    "opener_l2" to l2,
-                    "opener_l1" to l1,
-                    "ai_source" to if (isGemma) "gemma" else "fallback"
+                    "opener_l2" to opener.l2,
+                    "opener_l1" to opener.l1,
+                    "mood" to opener.mood,
+                    "ai_source" to if (opener.isGemma) "gemma" else "fallback"
                 ))
             }
         }
@@ -295,6 +297,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         val userSpokenText = call.argument<String>("user_spoken_text") ?: ""
         val turnNumber = call.argument<Int>("turn_number") ?: 1
         val maxTurns = call.argument<Int>("max_turns") ?: 5
+        val mood = call.argument<String>("mood")
 
         pluginScope.launch {
             // Track user utterance in local memory
@@ -308,6 +311,7 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
                 ctx = scenarioCtx,
                 turnNumber = turnNumber,
                 maxTurns = maxTurns,
+                mood = mood,
             )
             // Record the user's turn in history for context continuity with its fluency score
             val fluency = response["fluency_score"] as? Int

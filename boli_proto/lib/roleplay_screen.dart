@@ -27,22 +27,39 @@ class RoleplayScreen extends StatefulWidget {
   State<RoleplayScreen> createState() => _RoleplayScreenState();
 }
 
+class _RoleplayQuestion {
+  final String l2;
+  final String l1;
+  final String mood;
+  final String moodEmoji;
+  final String topic;
+
+  const _RoleplayQuestion({
+    required this.l2,
+    required this.l1,
+    required this.mood,
+    required this.moodEmoji,
+    required this.topic,
+  });
+}
+
 class _RoleplayPersona {
   final String id;
   final String title;
   final String titleNative;
   final IconData icon;
-  final String openerL2;
-  final String openerL1;
+  final List<_RoleplayQuestion> questions;
 
   const _RoleplayPersona({
     required this.id,
     required this.title,
     required this.titleNative,
     required this.icon,
-    required this.openerL2,
-    required this.openerL1,
+    required this.questions,
   });
+
+  String get openerL2 => questions.isNotEmpty ? questions.first.l2 : '';
+  String get openerL1 => questions.isNotEmpty ? questions.first.l1 : '';
 }
 
 const _kPersonas = [
@@ -51,32 +68,243 @@ const _kPersonas = [
     title: 'Supervisor',
     titleNative: 'सुपरवायझर',
     icon: Icons.engineering_rounded,
-    openerL2: 'नमस्ते! आज काय काम चालू आहे?',
-    openerL1: 'नमस्ते! आज क्या काम चल रहा है?',
+    questions: [
+      _RoleplayQuestion(
+        l2: 'सिमेंट आणि विटांचा साठा पुरेसा आहे का, की नवीन मागवू?',
+        l1: 'सीमेंट और ईंटों का स्टॉक काफी है क्या, या नया मंगाएं?',
+        mood: 'साहित्य तपासणी (Stock Check)',
+        moodEmoji: '📦',
+        topic: 'Checking raw material stock',
+      ),
+      _RoleplayQuestion(
+        l2: 'सुरक्षा हेल्मेट आणि बूट घातले आहेत ना? सुरक्षितपणे काम करा.',
+        l1: 'सुरक्षा हेलमेट और जूते पहने हैं ना? सावधानी से काम करें।',
+        mood: 'सुरक्षा दक्ष (Safety Strict)',
+        moodEmoji: '🛡️',
+        topic: 'Safety gear and helmet check',
+      ),
+      _RoleplayQuestion(
+        l2: 'आज संध्याकाळपर्यंत हे प्लास्टरचे काम पूर्ण होईल का?',
+        l1: 'आज शाम तक यह प्लास्टर का काम पूरा हो जाएगा क्या?',
+        mood: 'कामाचा ताण (Urgent Deadline)',
+        moodEmoji: '⚡',
+        topic: 'Progress and end of day deadline',
+      ),
+      _RoleplayQuestion(
+        l2: 'कालच्या कामात काही अडचण आली होती का? आज काय प्लॅन आहे?',
+        l1: 'कल के काम में कोई परेशानी आई थी क्या? आज का क्या प्लान है?',
+        mood: 'मार्गदर्शन (Helpful Review)',
+        moodEmoji: '🤝',
+        topic: 'Reviewing blockers and planning',
+      ),
+      _RoleplayQuestion(
+        l2: 'दुपारी १२ वाजता नवीन सामानाचा ट्रक येणार आहे, रिकामे करायला तयार राहा.',
+        l1: 'दोपहर १२ बजे नए सामान का ट्रक आने वाला है, खाली करने के लिए तैयार रहें।',
+        mood: 'नवीन काम (Active Alert)',
+        moodEmoji: '🚛',
+        topic: 'Material delivery truck unloading',
+      ),
+      _RoleplayQuestion(
+        l2: 'कामाची अवजारे आणि मशिन व्यवस्थित चालू आहेत का, काही बिघाड आहे?',
+        l1: 'काम के औजार और मशीन ठीक चल रही है क्या, कोई खराबी है?',
+        mood: 'यंत्र तपासणी (Inspection)',
+        moodEmoji: '🔧',
+        topic: 'Tool and machine maintenance check',
+      ),
+    ],
   ),
   _RoleplayPersona(
     id: 'shopkeeper',
     title: 'Shopkeeper',
     titleNative: 'दुकानदार',
     icon: Icons.storefront_rounded,
-    openerL2: 'नमस्ते, काय सामान पाहिजे?',
-    openerL1: 'नमस्ते, क्या सामान चाहिए?',
+    questions: [
+      _RoleplayQuestion(
+        l2: 'बोला भाऊ, आज कोणत्या मापाचे स्क्रू आणि खिळे हवे आहेत?',
+        l1: 'बोलिए भाई, आज किस साइज के स्क्रू और कीलें चाहिए?',
+        mood: 'व्यापारी (Business Inquisitive)',
+        moodEmoji: '🔩',
+        topic: 'Hardware screws and dimensions',
+      ),
+      _RoleplayQuestion(
+        l2: 'दोन इंची पाइप संपला आहे, अडीच इंची चालेल का?',
+        l1: 'दो इंच का पाइप खत्म हो गया है, ढाई इंच का चलेगा क्या?',
+        mood: 'पर्याय शोधणारा (Alternative Offer)',
+        moodEmoji: '💡',
+        topic: 'Out of stock and alternative product',
+      ),
+      _RoleplayQuestion(
+        l2: 'सामान रोखीने घेणार की फोन पे / युपीआय करणार आहात?',
+        l1: 'सामान नकद लोगे या फोन पे / यूपीआई करोगे?',
+        mood: 'बिलिंग (Payment & Billing)',
+        moodEmoji: '💳',
+        topic: 'Payment method cash or UPI',
+      ),
+      _RoleplayQuestion(
+        l2: 'सामान नेण्यासाठी गोणी किंवा पिशवी आणली आहे का?',
+        l1: 'सामान ले जाने के लिए बोरी या थैला लाए हो क्या?',
+        mood: 'मदतनीस (Helpful)',
+        moodEmoji: '🛍️',
+        topic: 'Carry bag inquiry',
+      ),
+      _RoleplayQuestion(
+        l2: 'ह्या ड्रिल मशिनचे पक्के बिल बनवू का, आणखी काही वस्तू हव्यात?',
+        l1: 'इस ड्रिल मशीन का पक्का बिल बना दूं क्या, या और कुछ सामान चाहिए?',
+        mood: 'हिशोबी (Prompt Billing)',
+        moodEmoji: '🧾',
+        topic: 'Billing and additional tools',
+      ),
+      _RoleplayQuestion(
+        l2: 'कोणत्या कंपनीचा रंग आणि ब्रश पाहिजे? आशियान की बर्जर?',
+        l1: 'किस कंपनी का पेंट और ब्रश चाहिए? एशियन या बर्जर?',
+        mood: 'सल्लागार (Consultative)',
+        moodEmoji: '🎨',
+        topic: 'Brand selection and recommendation',
+      ),
+    ],
   ),
   _RoleplayPersona(
     id: 'watchman',
     title: 'Security Guard',
     titleNative: 'वॉचमन',
     icon: Icons.shield_rounded,
-    openerL2: 'थांबा! कोणाकडे जायचे आहे?',
-    openerL1: 'रुको! किसके पास जाना है?',
+    questions: [
+      _RoleplayQuestion(
+        l2: 'थांबा! साईटवर आत जाण्यासाठी तुमचा गेट पास किंवा आयडी दाखवा.',
+        l1: 'रुको! साइट के अंदर जाने के लिए अपना गेट पास या आईडी दिखाओ।',
+        mood: 'कडक सुरक्षा (Strict Protocol)',
+        moodEmoji: '🛑',
+        topic: 'Entry pass and ID card inspection',
+      ),
+      _RoleplayQuestion(
+        l2: 'तुम्हाला आत कोणाला भेटायचे आहे? मॅनेजर साहेबांना की इंजिनिअरला?',
+        l1: 'आपको अंदर किससे मिलना है? मैनेजर साहब से या इंजीनियर से?',
+        mood: 'चौकशी (Gatekeeper Inquiry)',
+        moodEmoji: '🔍',
+        topic: 'Destination and person to meet',
+      ),
+      _RoleplayQuestion(
+        l2: 'गेट रजिस्टरमध्ये तुमचे नाव, मोबाईल नंबर आणि येण्याची वेळ लिहा.',
+        l1: 'गेट रजिस्टर में अपना नाम, मोबाइल नंबर और आने का समय लिखिए।',
+        mood: 'नोंदणी (Registration Routine)',
+        moodEmoji: '📝',
+        topic: 'Visitor log entry',
+      ),
+      _RoleplayQuestion(
+        l2: 'गाडी किंवा टेम्पो आत नेताना सामानाची पावती गेटवर जमा केली का?',
+        l1: 'गाड़ी या टेम्पो अंदर ले जाते समय सामान की रसीद गेट पर जमा की क्या?',
+        mood: 'गाडी तपासणी (Vehicle Verification)',
+        moodEmoji: '🚛',
+        topic: 'Delivery truck invoice check',
+      ),
+      _RoleplayQuestion(
+        l2: 'हेल्मेट घातल्याशिवाय साईटवर प्रवेश नाही, तुमचे हेल्मेट कुठे आहे?',
+        l1: 'हेलमेट पहने बिना साइट पर एंट्री नहीं है, आपका हेलमेट कहाँ है?',
+        mood: 'सुरक्षा नियम (Rule Enforcement)',
+        moodEmoji: '🪖',
+        topic: 'Safety helmet enforcement at gate',
+      ),
+      _RoleplayQuestion(
+        l2: 'दुपारी २ वाजेपर्यंत बाहेरच्या लोकांना परवानगी नाही, पूर्वपरवानगी आहे का?',
+        l1: 'दोपहर २ बजे तक बाहर वालों को परमिशन नहीं है, पूर्व अनुमति है क्या?',
+        mood: 'सतर्क (Alert Vigilance)',
+        moodEmoji: '⏰',
+        topic: 'Restricted visiting hours',
+      ),
+    ],
   ),
   _RoleplayPersona(
     id: 'coworker',
     title: 'Coworker',
     titleNative: 'सोबती',
     icon: Icons.handshake_rounded,
-    openerL2: 'भाऊ, चहा प्यायला जाऊया का?',
-    openerL1: 'भाई, चाय पीने चलें क्या?',
+    questions: [
+      _RoleplayQuestion(
+        l2: 'भाऊ, आज खूप ऊन आहे, पाच मिनिटे टपरीवर जाऊन कडक चहा मारूया का?',
+        l1: 'भाई, आज बहुत धूप है, पांच मिनट टपरी पर जाकर कड़क चाय पिएं क्या?',
+        mood: 'चहाची सुट्टी (Tea Break)',
+        moodEmoji: '☕',
+        topic: 'Tea stall break invitation',
+      ),
+      _RoleplayQuestion(
+        l2: 'माझा पाना सापडत नाहीये, तुझ्याकडे १० नंबरचा जास्तीचा पाना आहे का?',
+        l1: 'मेरा पाना नहीं मिल रहा, तुम्हारे पास १० नंबर का एक्स्ट्रा पाना है क्या?',
+        mood: 'साधन मागणी (Tool Borrowing)',
+        moodEmoji: '🔧',
+        topic: 'Borrowing wrench or tool',
+      ),
+      _RoleplayQuestion(
+        l2: 'हे लोखंडाचे जड पाईप उचलायला जरा दोन मिनिटे हात लावतोस का?',
+        l1: 'यह लोहे का भारी पाइप उठाने में जरा दो मिनट हाथ लगाओगे क्या?',
+        mood: 'मदतीची हाक (Cooperation)',
+        moodEmoji: '🤝',
+        topic: 'Heavy pipe lifting help',
+      ),
+      _RoleplayQuestion(
+        l2: 'दुपारच्या डब्यात काय आणले आहेस आज? एकत्र बसून जेवूया का?',
+        l1: 'दोपहर के टिफिन में आज क्या लाए हो? साथ बैठकर खाएं क्या?',
+        mood: 'मित्रता (Lunch Sharing)',
+        moodEmoji: '🍱',
+        topic: 'Sharing lunch together',
+      ),
+      _RoleplayQuestion(
+        l2: 'आज ओव्हरटाइम करायचा आहे की पाच वाजता सुट्टी होणार आहे?',
+        l1: 'आज ओवरटाइम करना है या पांच बजे छुट्टी होने वाली है?',
+        mood: 'वेळेची विचारणा (Shift Schedule)',
+        moodEmoji: '🕒',
+        topic: 'Overtime and leaving time',
+      ),
+      _RoleplayQuestion(
+        l2: 'सुपरवायझरने तुला आज कोणते काम दिले आहे? तिकडचे की इकडचे?',
+        l1: 'सुपरवाइजर ने तुम्हें आज कौन सा काम दिया है? उधर का या इधर का?',
+        mood: 'गप्पा (Curious Chat)',
+        moodEmoji: '💬',
+        topic: 'Task distribution chat',
+      ),
+    ],
+  ),
+  _RoleplayPersona(
+    id: 'canteen',
+    title: 'Tea Stall Owner',
+    titleNative: 'चहावाला',
+    icon: Icons.local_cafe_rounded,
+    questions: [
+      _RoleplayQuestion(
+        l2: 'बोला भाऊ! स्पेशल चहा बनवू की साधा? साखर कमी पाहिजे का?',
+        l1: 'बोलिए भाई! स्पेशल चाय बनाऊं या सादा? चीनी कम चाहिए क्या?',
+        mood: 'चहावाला (Fresh Tea)',
+        moodEmoji: '☕',
+        topic: 'Tea type and sugar preference',
+      ),
+      _RoleplayQuestion(
+        l2: 'गरम समोसे आणि वडापाव तयार आहेत, काय देऊ?',
+        l1: 'गरम समोसे और वड़ापाव तैयार हैं, क्या दूं?',
+        mood: 'गरमागरम (Hot Snacks)',
+        moodEmoji: '🥟',
+        topic: 'Hot snacks order',
+      ),
+      _RoleplayQuestion(
+        l2: 'सुट्टे दहा रुपये आहेत का भाऊ? सुट्ट्या पैशांची फार टंचाई आहे.',
+        l1: 'खुल्ले दस रुपये हैं क्या भाई? खुल्ले पैसों की बहुत किल्लत है।',
+        mood: 'सुट्टे पैसे (Change Request)',
+        moodEmoji: '🪙',
+        topic: 'Exact cash change request',
+      ),
+      _RoleplayQuestion(
+        l2: 'पार्सल न्यायचे आहे की इथेच टपरीवर बसून पिणार आहात?',
+        l1: 'पार्सल ले जाना है या यहीं टपरी पर बैठकर पियोगे?',
+        mood: 'चपळ सेवा (Quick Service)',
+        moodEmoji: '🥤',
+        topic: 'Dine in or parcel',
+      ),
+      _RoleplayQuestion(
+        l2: 'आज नाश्त्यामध्ये पोहे आणि उपमा संपला, शिरा चालेल का?',
+        l1: 'आज नाश्ते में पोहा और उपमा खत्म हो गया, शीरा चलेगा क्या?',
+        mood: 'पर्याय (Breakfast Alternative)',
+        moodEmoji: '🥣',
+        topic: 'Breakfast alternative',
+      ),
+    ],
   ),
 ];
 
@@ -88,6 +316,8 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
   final ScrollController _scrollCtrl = ScrollController();
 
   late _RoleplayPersona _activePersona;
+  _RoleplayQuestion? _currentQuestion;
+  String _currentMood = '';
   bool _listening = false;
   bool _botThinking = false;
   bool _gemmaAvailable = false;
@@ -133,10 +363,25 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
     await _startConversationWithPersona(_activePersona);
   }
 
-  Future<void> _startConversationWithPersona(_RoleplayPersona persona) async {
+  Future<void> _startConversationWithPersona(_RoleplayPersona persona, {int? forceIndex}) async {
     if (!mounted) return;
+
+    // Pick a fresh question from the pool
+    final pool = persona.questions;
+    _RoleplayQuestion chosenQuestion;
+    if (forceIndex != null && forceIndex >= 0 && forceIndex < pool.length) {
+      chosenQuestion = pool[forceIndex];
+    } else if (pool.length > 1 && _currentQuestion != null && _activePersona.id == persona.id) {
+      final available = pool.where((q) => q.l2 != _currentQuestion!.l2).toList();
+      chosenQuestion = (available..shuffle()).first;
+    } else {
+      chosenQuestion = (List<_RoleplayQuestion>.from(pool)..shuffle()).first;
+    }
+
     setState(() {
       _activePersona = persona;
+      _currentQuestion = chosenQuestion;
+      _currentMood = chosenQuestion.mood;
       _bubbles.clear();
       _userTurnCount = 0;
       _sessionCompleted = false;
@@ -150,16 +395,20 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
         {
           'persona': persona.title,
           'scenario': widget.scenario,
-          'fallback_l2': persona.openerL2,
-          'fallback_l1': persona.openerL1,
+          'scenario_angle': chosenQuestion.topic,
+          'mood': chosenQuestion.mood,
+          'fallback_l2': chosenQuestion.l2,
+          'fallback_l1': chosenQuestion.l1,
         },
       );
       if (!mounted) return;
-      final l2 = res?['opener_l2'] as String? ?? persona.openerL2;
-      final l1 = res?['opener_l1'] as String? ?? persona.openerL1;
+      final l2 = res?['opener_l2'] as String? ?? chosenQuestion.l2;
+      final l1 = res?['opener_l1'] as String? ?? chosenQuestion.l1;
+      final moodFromNative = res?['mood'] as String? ?? chosenQuestion.mood;
       final aiSource = res?['ai_source'] as String? ?? (_gemmaAvailable ? 'gemma' : 'fallback');
 
       setState(() {
+        _currentMood = moodFromNative;
         _bubbles.add(_ChatBubble.bot(
           l2Text: l2,
           l1Text: l1,
@@ -175,8 +424,8 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
       if (!mounted) return;
       setState(() {
         _bubbles.add(_ChatBubble.bot(
-          l2Text: persona.openerL2,
-          l1Text: persona.openerL1,
+          l2Text: chosenQuestion.l2,
+          l1Text: chosenQuestion.l1,
           speakerName: persona.title,
           aiSource: 'fallback',
         ));
@@ -184,7 +433,7 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
         _statusText = 'बोलण्यासाठी माइक दाबा (Tap mic to speak · 1/$_maxTurns)';
       });
       _scrollToBottom();
-      _speak(persona.openerL2);
+      _speak(chosenQuestion.l2);
     }
   }
 
@@ -223,7 +472,7 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
       });
       _scrollToBottom();
 
-      // Submit to BoliAiLayer (Gemma or fallback) with turn count
+      // Submit to BoliAiLayer (Gemma or fallback) with turn count and mood
       final response = await _engineChannel.invokeMapMethod<String, dynamic>(
         'submitUserUtterance',
         {
@@ -232,6 +481,7 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
           'user_spoken_text': transcript,
           'turn_number': nextTurnIndex,
           'max_turns': _maxTurns,
+          'mood': _currentMood,
         },
       );
 
@@ -325,6 +575,7 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
           children: [
             _buildHeader(),
             _buildPersonaStrip(),
+            _buildMoodBar(),
             Expanded(
               child: ListView.builder(
                 controller: _scrollCtrl,
@@ -501,6 +752,69 @@ class _RoleplayScreenState extends State<RoleplayScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildMoodBar() {
+    final emoji = _currentQuestion?.moodEmoji ?? '🎭';
+    final moodDisplay = _currentMood.isNotEmpty ? _currentMood : (_currentQuestion?.mood ?? 'कामाचा प्रसंग');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+      decoration: BoxDecoration(
+        color: Boli.cream.withValues(alpha: .3),
+        border: Border(bottom: BorderSide(color: Boli.sand.withValues(alpha: .4))),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Boli.sand.withValues(alpha: .35),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  emoji,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  moodDisplay,
+                  style: Boli.label(size: 11, color: Boli.ink),
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: (_listening || _botThinking)
+                ? null
+                : () => _startConversationWithPersona(_activePersona),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Boli.marigold.withValues(alpha: .2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Boli.marigold.withValues(alpha: .6)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.shuffle_rounded, size: 13, color: Boli.ink),
+                  const SizedBox(width: 4),
+                  Text(
+                    'नवीन प्रश्न (New Question)',
+                    style: Boli.label(size: 11, color: Boli.ink),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

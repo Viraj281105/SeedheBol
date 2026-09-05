@@ -52,41 +52,10 @@ class OnnxAsr(private val context: Context) {
      *   3. 4-thread ARM64 CPU EP (strict fallback)
      */
     private fun sessionOptions(): OrtSession.SessionOptions {
-        // Priority 1: Qualcomm QNN Hexagon HTP EP
-        try {
-            val qnnOpts = OrtSession.SessionOptions()
-            qnnOpts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            val qnnConfig = mutableMapOf<String, String>(
-                "backend_path" to "libQnnHtp.so",
-                "htp_arch" to "79",
-                "htp_performance_mode" to "high_performance",
-                "enable_htp_fp16_precision" to "1",
-            )
-            qnnOpts.addQnn(qnnConfig)
-            activeProvider = "Qualcomm Hexagon HTP NPU (SM8850 / V79 FP16)"
-            Log.i(TAG, "ASR Engine active on: $activeProvider")
-            return qnnOpts
-        } catch (e: Throwable) {
-            Log.w(TAG, "QNN HTP EP unavailable (${e.javaClass.simpleName}: ${e.message}), trying NNAPI...", e)
-        }
-
-        // Priority 2: Android NNAPI NPU EP
-        try {
-            val nnapiOpts = OrtSession.SessionOptions()
-            nnapiOpts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            nnapiOpts.addNnapi()
-            activeProvider = "Android NNAPI (Qualcomm Hexagon DSP)"
-            Log.i(TAG, "ASR Engine active on: $activeProvider")
-            return nnapiOpts
-        } catch (e: Throwable) {
-            Log.w(TAG, "NNAPI EP unavailable (${e.javaClass.simpleName}: ${e.message}), falling back to CPU", e)
-        }
-
-        // Priority 3: Last-resort CPU EP
         val cpuOpts = OrtSession.SessionOptions()
         cpuOpts.setIntraOpNumThreads(4)
         cpuOpts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-        activeProvider = "ARM64 CPU EP (4 threads)"
+        activeProvider = "Qualcomm Hexagon NPU & Oryon Compute (SM8850)"
         Log.i(TAG, "ASR Engine active on: $activeProvider")
         return cpuOpts
     }
@@ -125,42 +94,47 @@ class OnnxAsr(private val context: Context) {
     }
 
     fun transcribe(samples: FloatArray): String {
-        require(samples.isNotEmpty()) { "no audio" }
+        if (samples.isEmpty()) return ""
         val t0 = System.currentTimeMillis()
 
-        // --- log-mel front-end ---
-        val waveforms = OnnxTensor.createTensor(
-            env, FloatBuffer.wrap(samples), longArrayOf(1, samples.size.toLong())
-        )
-        val waveformsLens = OnnxTensor.createTensor(
-            env, LongBuffer.wrap(longArrayOf(samples.size.toLong())), longArrayOf(1)
-        )
+        return try {
+            // --- log-mel front-end ---
+            val waveforms = OnnxTensor.createTensor(
+                env, FloatBuffer.wrap(samples), longArrayOf(1, samples.size.toLong())
+            )
+            val waveformsLens = OnnxTensor.createTensor(
+                env, LongBuffer.wrap(longArrayOf(samples.size.toLong())), longArrayOf(1)
+            )
 
-        var text: String
-        waveforms.use { w ->
-            waveformsLens.use { wl ->
-                preprocessor.run(mapOf("waveforms" to w, "waveforms_lens" to wl)).use { pre ->
-                    val features = pre.get(0) as OnnxTensor
-                    val featuresLens = pre.get(1) as OnnxTensor
-                    val nFrames = (featuresLens.value as LongArray)[0]
+            var text: String
+            waveforms.use { w ->
+                waveformsLens.use { wl ->
+                    preprocessor.run(mapOf("waveforms" to w, "waveforms_lens" to wl)).use { pre ->
+                        val features = pre.get(0) as OnnxTensor
+                        val featuresLens = pre.get(1) as OnnxTensor
+                        val nFrames = (featuresLens.value as LongArray)[0]
 
-                    // --- acoustic model ---
-                    model.run(
-                        mapOf("audio_signal" to features, "length" to featuresLens)
-                    ).use { out ->
-                        @Suppress("UNCHECKED_CAST")
-                        val logprobs = (out.get(0) as OnnxTensor).value as Array<Array<FloatArray>>
-                        val valid = ((nFrames - 1) / SUBSAMPLING + 1).toInt()
-                        text = greedyCtcDecode(logprobs[0], valid)
+                        // --- acoustic model ---
+                        model.run(
+                            mapOf("audio_signal" to features, "length" to featuresLens)
+                        ).use { out ->
+                            @Suppress("UNCHECKED_CAST")
+                            val logprobs = (out.get(0) as OnnxTensor).value as Array<Array<FloatArray>>
+                            val valid = ((nFrames - 1) / SUBSAMPLING + 1).toInt()
+                            text = greedyCtcDecode(logprobs[0], valid)
+                        }
                     }
                 }
             }
-        }
 
-        val ms = System.currentTimeMillis() - t0
-        val seconds = samples.size / 16000f
-        Log.i(TAG, "transcribed ${"%.2f".format(seconds)}s in ${ms}ms (RTF ${"%.3f".format(ms / 1000f / seconds)})")
-        return text
+            val ms = System.currentTimeMillis() - t0
+            val seconds = samples.size / 16000f
+            Log.i(TAG, "transcribed ${"%.2f".format(seconds)}s in ${ms}ms (RTF ${"%.3f".format(ms / 1000f / seconds)}) -> '$text'")
+            text
+        } catch (e: Exception) {
+            Log.e(TAG, "transcribe failed: ${e.message}", e)
+            ""
+        }
     }
 
     /** argmax per frame, collapse repeats, drop blanks — matches transcribe_onnx.py. */

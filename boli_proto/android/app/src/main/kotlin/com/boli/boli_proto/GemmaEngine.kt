@@ -70,14 +70,14 @@ class GemmaEngine(private val context: Context) {
         try {
             val options = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelFile.absolutePath)
-                .setMaxTokens(MAX_OUTPUT_TOKENS)
+                .setMaxTokens(MAX_SEQUENCE_TOKENS)
                 .setMaxTopK(TOP_K)
                 .build()
 
             llmInference = LlmInference.createFromOptions(context, options)
             isAvailable = true
             Log.i(TAG, "Gemma ready — model=${modelFile.name} " +
-                    "(${modelFile.length() / 1_048_576}MB)")
+                    "(${modelFile.length() / 1_048_576}MB) [seqTokens=$MAX_SEQUENCE_TOKENS]")
         } catch (e: Exception) {
             Log.e(TAG, "Gemma init failed — falling back to deterministic", e)
             isAvailable = false
@@ -130,10 +130,22 @@ class GemmaEngine(private val context: Context) {
                         sessionOptions(temperature = temperature, topK = topK),
                     )
                     val result = try {
-                        session.addQueryChunk(prompt)
-                        session.generateResponse()
+                        val promptToUse = if (prompt.length > 2000) {
+                            Log.w(TAG, "Prompt exceeded 2000 chars (${prompt.length}), trimming")
+                            prompt.take(2000)
+                        } else {
+                            prompt
+                        }
+                        session.addQueryChunk(promptToUse)
+                        val raw = session.generateResponse()
+                        raw?.ifEmpty { null }
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "MediaPipe generation error caught safely", t)
+                        null
                     } finally {
-                        session.close()
+                        try {
+                            session.close()
+                        } catch (_: Throwable) {}
                     }
                     val ms = System.currentTimeMillis() - t0
                     Log.i(TAG, "generate [temp=$temperature]: ${result?.length ?: 0} chars in ${ms}ms -> ${result?.take(120)?.replace('\n', ' ')}")
@@ -260,7 +272,7 @@ class GemmaEngine(private val context: Context) {
             "gemma-2b-it-gpu-int4.bin",
         )
         const val MODEL_FILENAME = "gemma-2b-it-cpu-int4.bin"
-        private const val MAX_OUTPUT_TOKENS = 512
+        private const val MAX_SEQUENCE_TOKENS = 384
         const val TOP_K = 25
         /** Deterministic, rule-adhering temperature for structured OCR/lesson extraction. */
         const val STRUCTURED_TEMPERATURE = 0.15f
