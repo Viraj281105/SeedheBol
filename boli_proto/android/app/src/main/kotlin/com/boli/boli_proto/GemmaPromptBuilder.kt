@@ -23,10 +23,17 @@ object GemmaPromptBuilder {
     // Shared preamble & chat wrapper
     // -------------------------------------------------------------------------
 
-    private fun wrapTurn(userText: String): String = buildString {
+    fun wrapTurn(userText: String): String = buildString {
         append("<start_of_turn>user\n")
         append(userText.trim())
         append("\n<end_of_turn>\n<start_of_turn>model\n")
+    }
+
+    fun wrapTurnWithPrefix(userText: String, modelPrefix: String = ""): String = buildString {
+        append("<start_of_turn>user\n")
+        append(userText.trim())
+        append("\n<end_of_turn>\n<start_of_turn>model\n")
+        if (modelPrefix.isNotBlank()) append(modelPrefix)
     }
 
     // -------------------------------------------------------------------------
@@ -191,9 +198,9 @@ object GemmaPromptBuilder {
             if (!scenarioAngle.isNullOrBlank()) {
                 appendLine("SITUATION ANGLE: $scenarioAngle")
             }
-            appendLine("CREATIVE DIRECTION: Sound like an actual person on the job — not an AI tutor. Speak with natural rhythm, subtle humor or workplace urgency, and authentic local vocabulary (e.g. respectful address like भाऊ, दादा, साहेब).")
+            appendLine("BOUNDED WORKPLACE ROLE: Strictly practical, grounded workplace communication. Do NOT wander into creative storytelling, jokes, or idioms.")
             appendLine("TASK: Speak your opening question or statement to kick off this interaction naturally.")
-            appendLine("Keep it to EXACTLY ONE short, crisp spoken sentence (under 13 words) in authentic $l2Name.")
+            appendLine("Keep it to EXACTLY ONE short spoken sentence (under 13 words) in authentic $l2Name.")
             appendLine("Do NOT ask for names. Do NOT use brackets or placeholders.")
             appendLine()
             appendLine("Format strictly as follows (no markdown, no extra commentary):")
@@ -214,7 +221,7 @@ object GemmaPromptBuilder {
      *
      * Instructs the model to:
      *   1. Understand user intent semantically (tolerate broken grammar or slang).
-     *   2. Respond naturally with authentic character emotion and workplace realism.
+     *   2. Respond naturally with grounded workplace realism.
      *   3. Evaluate the learner's fluency on a 0-100 scale.
      *   4. Suggest a more natural/polite phrasing for the learner ("Better Way").
      *   5. Provide encouraging, street-smart coaching and pronunciation tips.
@@ -225,6 +232,7 @@ object GemmaPromptBuilder {
         turnNumber: Int = 1,
         maxTurns: Int = 5,
         mood: String? = null,
+        groundTruth: WorkplaceKnowledgeItem? = null,
     ): String {
         val (l2Name, l2Script) = getLanguageScriptName(ctx.l2)
         val (l1Name, l1Script) = getLanguageScriptName(ctx.l1)
@@ -235,24 +243,45 @@ object GemmaPromptBuilder {
             appendLine("ACT AS A CHARACTER: You are $persona$moodText speaking in $l2Name ($l2Script) to a ${ctx.occupation}.")
             appendLine("SESSION PROGRESS: Turn $turnNumber of $maxTurns.")
             if (turnNumber >= maxTurns) {
-                appendLine("FINAL TURN: Acknowledge what the learner said, give a warm closing reaction, and wrap up the conversation naturally in 1 sentence in $l2Script.")
+                appendLine("FINAL TURN: Acknowledge what the learner said and conclude the conversation naturally in 1 sentence in $l2Script.")
             } else {
-                appendLine("TASK: React and respond directly to what the Learner said in their latest turn as $persona.")
+                appendLine("TASK: Respond directly to what the Learner said in their latest turn as $persona.")
             }
-            appendLine("CREATIVE ACTING RULES:")
-            appendLine("- React with real emotional resonance (relief, urgency, praise, humor, or practical direction).")
+            if (groundTruth != null) {
+                appendLine()
+                appendLine("VERIFIED WORKPLACE GROUND TRUTH (STRICT CONTEXT BOUNDARY):")
+                appendLine("Target Fact in $l2Script: \"${groundTruth.groundTruthL2}\"")
+                appendLine("Meaning in $l1Script: \"${groundTruth.groundTruthL1}\"")
+                appendLine("Recommended Phrasing: \"${groundTruth.betterPhrasing}\"")
+                appendLine("CRITICAL: Respond to the Learner using or adapting this exact verified factual truth. Do not invent contradictory numbers or facts.")
+                appendLine()
+            }
+            appendLine("BOUNDED WORKPLACE RULES (STRICT NON-CREATIVE):")
+            appendLine("- Direct, grounded, practical workplace response. NO storytelling, NO jokes, NO digressions.")
             appendLine("- Keep your L2 response to EXACTLY ONE spoken sentence (under 14 words) in authentic $l2Script.")
             appendLine("- DO NOT repeat or echo the Learner's words. DO NOT repeat your own previous question.")
             appendLine()
-            appendLine("Example:")
-            appendLine("Previous Bot: सिमेंटचा साठा पुरेसा आहे का?")
-            appendLine("Learner: होय साहेब, पुरेसा आहे.")
-            appendLine("L2: छान, मग काम सुरू करा आणि काळजी घ्या.")
-            appendLine("L1: बढ़िया, फिर काम शुरू कीजिए और ध्यान रखिए।")
-            appendLine("FLUENCY: 85")
-            appendLine("BETTER: होय साहेब, आजच्या कामासाठी साठा पुरेसा आहे.")
-            appendLine("FEEDBACK: उत्तर स्पष्ट आणि चांगले आहे.")
-            appendLine("HINT: काळजी शब्द स्पष्ट बोला.")
+            if (ctx.l2.startsWith("hi", ignoreCase = true)) {
+                appendLine("Example:")
+                appendLine("Previous Bot: क्या काम का सामान तैयार है?")
+                appendLine("Learner: हां जी, सब सामान तैयार है।")
+                appendLine("L2: ठीक है, फिर काम शुरू कीजिए और ध्यान से कीजिए।")
+                appendLine("L1: ठीक है, फिर काम शुरू कीजिए और ध्यान से कीजिए।")
+                appendLine("FLUENCY: 85")
+                appendLine("BETTER: हां जी साहेब, आज का पूरा सामान तैयार है।")
+                appendLine("FEEDBACK: उत्तर स्पष्ट और सही है।")
+                appendLine("HINT: ध्यान शब्द साफ बोलें।")
+            } else {
+                appendLine("Example:")
+                appendLine("Previous Bot: सिमेंटचा साठा पुरेसा आहे का?")
+                appendLine("Learner: होय साहेब, पुरेसा आहे.")
+                appendLine("L2: छान, मग काम सुरू करा आणि काळजी घ्या.")
+                appendLine("L1: बढ़िया, फिर काम शुरू कीजिए और ध्यान रखिए।")
+                appendLine("FLUENCY: 85")
+                appendLine("BETTER: होय साहेब, आजच्या कामासाठी साठा पुरेसा आहे.")
+                appendLine("FEEDBACK: उत्तर स्पष्ट आणि चांगले आहे.")
+                appendLine("HINT: काळजी शब्द स्पष्ट बोला.")
+            }
             appendLine()
             appendLine("Current conversation history:")
             for (turn in history.takeLast(2)) {
@@ -268,7 +297,7 @@ object GemmaPromptBuilder {
             appendLine("FEEDBACK: 1 short encouraging sentence in $l1Script giving constructive feedback")
             appendLine("HINT: One practical pronunciation tip in $l1Script, or write none")
             appendLine()
-            appendLine("CRITICAL: Output ONLY authentic $l2Name in L2. Respond to the Learner with genuine character warmth. Never parrot.")
+            appendLine("CRITICAL: Output ONLY authentic $l2Name in L2. Respond strictly to what the Learner said. Never parrot.")
         }
         return wrapTurn(userPrompt)
     }
@@ -380,33 +409,41 @@ object GemmaPromptBuilder {
      * Combines translation + vocabulary + practice sentence in one inference call
      * to minimise latency (one LLM round-trip vs three).
      */
-    fun buildOcrLessonPrompt(ocrText: String, ctx: GemmaContext): String {
+    fun buildOcrLessonPrompt(
+        ocrText: String,
+        ctx: GemmaContext,
+        groundTruth: WorkplaceKnowledgeItem? = null,
+    ): String {
+        val (l2Name, l2Script) = getLanguageScriptName(ctx.l2)
+        val (l1Name, l1Script) = getLanguageScriptName(ctx.l1)
+        val cleanOcr = if (ocrText.length > 250) ocrText.take(250) else ocrText
+
         val userPrompt = buildString {
             appendLine(systemHeader(ctx))
             appendLine()
-            appendLine("TASK: Create a short workplace micro-lesson from photographed signboard text.")
-            appendLine("Rules: Output strictly the lines below. No markdown bolding (**), no bullet dashes (-), no intro text.")
+            appendLine("TASK: Create a short workplace micro-lesson from the photographed signboard below.")
+            appendLine("Signboard text: \"$cleanOcr\"")
+            if (groundTruth != null) {
+                appendLine("Verified reference: ${groundTruth.groundTruthL2} (${groundTruth.groundTruthL1})")
+            }
             appendLine()
-            appendLine("--- Example ---")
-            appendLine("Signboard: \"धोका! पुढे काम चालू आहे\"")
-            appendLine("TOPIC: काम चालू आहे")
-            appendLine("TRANSLATION: खतरा! आगे काम चल रहा है")
-            appendLine("EXPLANATION: यह निर्माण स्थल पर सुरक्षा चेतावनी बोर्ड है। हमेशा ध्यान से काम करें।")
-            appendLine("WORD: धोका = खतरा (dhoka)")
-            appendLine("WORD: पुढे = आगे (pudhe)")
-            appendLine("PRACTICE: येथे काळजीपूर्वक काम करा.")
-            appendLine("--- New Task ---")
-            val cleanOcr = if (ocrText.length > 250) ocrText.take(250) else ocrText
-            appendLine("Signboard: \"$cleanOcr\"")
+            appendLine("Output strictly these 5 tags in order. Begin directly with TOPIC: on line 1. No intro, no conversational filler, no markdown asterisks (**):")
             appendLine()
-            appendLine("Generate the micro-lesson strictly following the tags below (no markdown):")
-            appendLine("TOPIC: Title in ${ctx.l2}")
-            appendLine("TRANSLATION: Translation in ${ctx.l1}")
-            appendLine("EXPLANATION: Workplace meaning in ${ctx.l1}")
-            appendLine("WORD: <${ctx.l2} word> = <${ctx.l1} meaning> (<roman pronunciation>)")
-            appendLine("PRACTICE: Short spoken sentence in ${ctx.l2}")
+            appendLine("Example format:")
+            appendLine("TOPIC: मोबाईल वापर बंदी")
+            appendLine("TRANSLATION: यहाँ मोबाइल फोन का उपयोग मना है")
+            appendLine("EXPLANATION: काम के दौरान सुरक्षा और ध्यान बनाए रखने के लिए फोन का उपयोग न करें।")
+            appendLine("WORD: मोबाईल = मोबाइल (mobile)")
+            appendLine("WORD: वापर = उपयोग (vaapar)")
+            appendLine("PRACTICE: कामाच्या वेळी मोबाईल वापरू नका.")
+            appendLine()
+            appendLine("CRITICAL RULES:")
+            appendLine("- All $l2Name text MUST be in authentic $l2Script.")
+            appendLine("- All $l1Name text MUST be in authentic $l1Script.")
+            appendLine("- Output ONLY actual words from or directly relevant to the photographed signboard.")
+            appendLine("- Do NOT echo placeholder brackets or instructions.")
         }
-        return wrapTurn(userPrompt)
+        return wrapTurnWithPrefix(userPrompt, modelPrefix = "TOPIC: ")
     }
 
     // -------------------------------------------------------------------------

@@ -20,8 +20,9 @@ import android.util.Log
  *   - Deterministic fallback calls are synchronous but lightweight.
  */
 class BoliAiLayer(
-    private val gemma: GemmaEngine,
-    private val deterministic: DeterministicFallback,
+    private val gemma: GemmaEngine? = null,
+    private val deterministic: DeterministicFallback = DeterministicFallback(),
+    private val knowledgeStore: WorkplaceKnowledgeStore? = null,
 ) {
 
     // -------------------------------------------------------------------------
@@ -56,11 +57,15 @@ class BoliAiLayer(
         val seen = mutableSetOf<String>()
 
         for (line in raw.lines()) {
-            val trimmed = line.trim()
-                .replace(Regex("^[•*\\-—_~|#]+\\s*"), "") // strip leading bullet chars
-                .replace(Regex("\\s*[•*\\-—_~|#]+$"), "") // strip trailing bullet chars
-                .replace(Regex("^\\d+[.,)\\-\\s]+\\s*"), "") // strip leading list numbering like "18, " or "19. "
-                .trim()
+            var trimmed = line.trim()
+            // Strip leading/trailing bracketed icons/tags like ( ), [o], [1], (x)
+            trimmed = trimmed.replace(Regex("^(?:\\([^)]*\\)|\\[[^\\]]*\\]|\\{[^}]*\\}|<[^>]*>)+\\s*"), "")
+            trimmed = trimmed.replace(Regex("\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\]|\\{[^}]*\\}|<[^>]*>)+$"), "")
+            // Strip leading bullet chars, numbering, symbols
+            trimmed = trimmed.replace(Regex("^[•*\\-—_~#~=+@$%^&;:,.'\"|/\\\\()]+\\s*"), "")
+            trimmed = trimmed.replace(Regex("\\s*[•*\\-—_~#~=+@$%^&;:,.'\"|/\\\\()]+$"), "")
+            trimmed = trimmed.replace(Regex("^\\d+[.,)\\-\\s]+\\s*"), "")
+            trimmed = trimmed.trim()
 
             // Ignore empty or 1-character stray symbols (e.g. ".", "|")
             if (trimmed.length < 2) continue
@@ -84,13 +89,17 @@ class BoliAiLayer(
         }
     }
 
+    private fun isParrot(text: String): Boolean {
+        return text.matches(Regex("(?i).*(?:2-4 word summary|meaning of this signboard|1 sentence in|word_in_|second_word_|1 short spoken sentence|title in|topic in).*"))
+    }
+
     // -------------------------------------------------------------------------
     // Primary demo flow: Camera → OCR → Gemma → MicroLesson
     // -------------------------------------------------------------------------
 
     /**
      * Generates a contextual micro-lesson from [ocrText] in a single LLM call.
-     * Uses low temperature (0.2) for deterministic structured output and graceful
+     * Uses low temperature for deterministic structured output and graceful
      * partial-result fallback so a valid translation is never lost.
      */
     suspend fun generateLessonFromOcr(
@@ -101,86 +110,112 @@ class BoliAiLayer(
         val cleanOcr = cleanOcrText(ocrText)
         val textToProcess = if (cleanOcr.isNotBlank()) cleanOcr else ocrText.trim()
 
-        if (gemma.isAvailable && textToProcess.isNotBlank()) {
-            val prompt = GemmaPromptBuilder.buildOcrLessonPrompt(textToProcess, ctx)
+        if (textToProcess.isBlank()) {
+            throw IllegalArgumentException("No readable text found on the signboard.")
+        }
+
+        // 1. Query Local Micro-RAG Knowledge Store for ground truth match (without arbitrary baseline fallback)
+        val ragMatch = knowledgeStore?.queryRelevantKnowledge(
+            utterance = textToProcess,
+            domain = "signboard",
+            language = ctx.l2,
+            allowFallback = false
+        ) ?: knowledgeStore?.queryRelevantKnowledge(
+            utterance = textToProcess,
+            domain = ctx.occupation.ifBlank { "construction" },
+            language = ctx.l2,
+            allowFallback = false
+        )
+
+        // 2. Run on-device SLM inference if model is available
+        if (gemma?.isAvailable == true) {
+            val prompt = GemmaPromptBuilder.buildOcrLessonPrompt(textToProcess, ctx, ragMatch)
             val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (raw != null) {
                 Log.i(TAG, "Gemma raw OCR lesson response:\n$raw")
-                val fallbackTitle = textToProcess.lines().firstOrNull()?.take(30) ?: textToProcess.take(30)
+                val fallbackTitle = textToProcess.lines().firstOrNull()?.take(40) ?: textToProcess.take(40)
                 val parsedLesson = parseOcrLessonResponse(raw, fallbackTitle)
 
-                // Graceful partial-result check:
-                // If Gemma gave ANY useful output (translation, explanation, vocab, or practice),
-                // do NOT discard it. Patch missing fields gracefully.
-                val hasAnyValidContent = parsedLesson.translation.isNotBlank() ||
-                        parsedLesson.explanation.isNotBlank() ||
+                // Must have at least one useful field from Gemma that isn't parroting instructions
+                val hasAnyValidContent = (parsedLesson.translation.isNotBlank() && !isParrot(parsedLesson.translation)) ||
+                        (parsedLesson.explanation.isNotBlank() && !isParrot(parsedLesson.explanation)) ||
                         parsedLesson.vocabulary.isNotEmpty() ||
                         parsedLesson.practicePrompt.isNotBlank()
 
                 if (hasAnyValidContent) {
-                    val patchedLesson = patchMissingFields(parsedLesson, textToProcess, ctx)
+                    val patchedLesson = patchMissingFields(parsedLesson, textToProcess, ctx, ragMatch)
                     return AiResponse(patchedLesson, AiSource.GEMMA, System.currentTimeMillis() - t0)
                 } else {
-                    Log.w(TAG, "Gemma response lacked all target fields, falling back to deterministic")
+                    Log.w(TAG, "Gemma response lacked usable fields for OCR lesson: '$raw'")
                 }
             }
         }
 
-        // Gemma unavailable or completely empty response
-        val fallback = deterministic.generateMicroLesson(textToProcess.take(30), ctx)
-        return AiResponse(fallback, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
+        // 3. Guaranteed authentic direct synthesis from photographed OCR text & Micro-RAG
+        Log.i(TAG, "Synthesizing authentic lesson directly from photographed OCR text: '$textToProcess'")
+        val synthesizedLesson = synthesizeLessonFromOcrText(textToProcess, ctx, ragMatch)
+        return AiResponse(synthesizedLesson, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
     }
 
     /**
      * Completes any missing fields in a partially-parsed Gemma response using
-     * deterministic domain context so the UI receives a complete, non-broken lesson.
+     * the actual OCR text and Micro-RAG rather than fabricated fallback lessons.
      */
     private fun patchMissingFields(
         lesson: MicroLesson,
         cleanOcrText: String,
         ctx: GemmaContext,
+        ragMatch: WorkplaceKnowledgeItem? = null,
     ): MicroLesson {
-        val fallback = deterministic.generateMicroLesson(cleanOcrText.take(30), ctx)
+        val firstLine = cleanOcrText.lines().firstOrNull()?.take(40) ?: cleanOcrText.take(40)
 
-        val topic = if (lesson.topic.isNotBlank() && !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.topic)) {
+        val topic = if (lesson.topic.isNotBlank() &&
+            !isParrot(lesson.topic) &&
+            !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.topic)
+        ) {
             lesson.topic
         } else {
-            cleanOcrText.lines().firstOrNull()?.take(30) ?: fallback.topic
+            firstLine
         }
 
-        val translation = if (lesson.translation.isNotBlank() && !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.translation)) {
+        val translation = if (lesson.translation.isNotBlank() &&
+            !isParrot(lesson.translation) &&
+            !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.translation)
+        ) {
             lesson.translation
         } else {
-            val det = deterministic.translateOcrText(cleanOcrText, ctx)
-            // Never surface internal error markers (starting with '[') as lesson content
-            if (det.isNotBlank() && !det.startsWith("[")) det else ""
+            ragMatch?.groundTruthL1 ?: ""
         }
 
-        val explanation = if (lesson.explanation.isNotBlank() && !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.explanation)) {
+        val explanation = if (lesson.explanation.isNotBlank() &&
+            !isParrot(lesson.explanation) &&
+            !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.explanation)
+        ) {
             lesson.explanation
         } else {
-            if (translation.isNotBlank() && !translation.startsWith("[")) {
-                "कार्यस्थल पर सुरक्षा और निर्देश का बोर्ड।"
-            } else {
-                fallback.explanation
-            }
+            ragMatch?.let { "कार्यस्थल पर सुरक्षा और नियमों का पालन करने के लिए यह सूचना महत्वपूर्ण है। (${it.contextScenario})" }
+                ?: "कामाच्या ठिकाणी सुरक्षेसाठी आणि नियमांचे पालन करण्यासाठी ही सूचना महत्त्वाची आहे."
         }
 
-        val vocabulary = if (lesson.vocabulary.isNotEmpty()) lesson.vocabulary else {
-            val extracted = deterministic.generateVocabulary(cleanOcrText, ctx)
-            if (extracted.isNotEmpty()) extracted else fallback.vocabulary
+        val vocabulary = if (lesson.vocabulary.isNotEmpty()) {
+            lesson.vocabulary
+        } else {
+            extractVocabFromOcrText(cleanOcrText, ctx, ragMatch)
         }
 
         val practice = if (lesson.practicePrompt.isNotBlank() &&
+            !isParrot(lesson.practicePrompt) &&
             !LlmOutputSanitizer.hasDegenerativeRepetition(lesson.practicePrompt) &&
-            LlmOutputSanitizer.matchesScript(lesson.practicePrompt, ctx.l2)) {
+            LlmOutputSanitizer.matchesScript(lesson.practicePrompt, ctx.l2)
+        ) {
             lesson.practicePrompt
         } else {
-            if (vocabulary.isNotEmpty()) {
-                "${vocabulary.first().l2Word} येथे वापरा."
-            } else {
-                fallback.practicePrompt
-            }
+            ragMatch?.betterPhrasing?.takeIf { it.isNotBlank() }
+                ?: if (vocabulary.isNotEmpty()) {
+                    "${vocabulary.first().l2Word} बोला."
+                } else {
+                    "$firstLine बोला."
+                }
         }
 
         return lesson.copy(
@@ -189,7 +224,91 @@ class BoliAiLayer(
             explanation = explanation,
             vocabulary = vocabulary,
             practicePrompt = practice,
-            source = "gemma",
+            source = lesson.source,
+        )
+    }
+
+    fun extractVocabFromOcrText(
+        cleanOcr: String,
+        ctx: GemmaContext,
+        ragMatch: WorkplaceKnowledgeItem? = null,
+    ): List<VocabItem> {
+        val vocabList = mutableListOf<VocabItem>()
+        val words = cleanOcr
+            .replace(Regex("[.,?!।\"'\\-()0-9\\[\\]{}<>/\\\\|•*—_~#~=+@$%^&;:]"), " ")
+            .split(Regex("\\s+"))
+            .map { it.trim() }
+            .filter { it.length >= 2 }
+            .distinct()
+
+        for (word in words) {
+            val dictEntry = INDIC_WORKPLACE_VOCAB_DICT[word]
+                ?: INDIC_WORKPLACE_VOCAB_DICT[word.lowercase()]
+            if (dictEntry != null) {
+                vocabList.add(VocabItem(l2Word = word, l1Meaning = dictEntry.first, romanization = dictEntry.second))
+            } else if (ragMatch != null) {
+                val ragL2Words = ragMatch.groundTruthL2.split(Regex("\\s+"))
+                if (ragL2Words.any { it.contains(word) || word.contains(it) }) {
+                    vocabList.add(VocabItem(l2Word = word, l1Meaning = ragMatch.groundTruthL1.take(25), romanization = ""))
+                }
+            }
+        }
+
+        if (vocabList.isEmpty()) {
+            for (word in words.take(3)) {
+                vocabList.add(VocabItem(l2Word = word, l1Meaning = "फलकावरील महत्त्वाचा शब्द", romanization = ""))
+            }
+        }
+
+        return vocabList.distinctBy { it.l2Word }.take(4)
+    }
+
+    fun synthesizeLessonFromOcrText(
+        cleanOcr: String,
+        ctx: GemmaContext,
+        ragMatch: WorkplaceKnowledgeItem? = null,
+    ): MicroLesson {
+        val firstLine = cleanOcr.lines().firstOrNull()?.take(40) ?: cleanOcr.take(40)
+
+        val topic = firstLine
+
+        val translation = if (ragMatch != null && ragMatch.groundTruthL1.isNotBlank()) {
+            ragMatch.groundTruthL1
+        } else {
+            val transWords = cleanOcr
+                .replace(Regex("[.,?!।\"'\\-()0-9\\[\\]{}<>/\\\\|•*—_~#~=+@$%^&;:]"), " ")
+                .split(Regex("\\s+"))
+                .mapNotNull { INDIC_WORKPLACE_VOCAB_DICT[it]?.first?.substringBefore(" (") }
+            if (transWords.isNotEmpty()) {
+                transWords.joinToString(" ")
+            } else {
+                "फलकावरील संदेश: $cleanOcr"
+            }
+        }
+
+        val explanation = if (ragMatch != null) {
+            "कार्यस्थल पर सुरक्षा और नियमों का पालन करने के लिए यह सूचना महत्वपूर्ण है। (${ragMatch.contextScenario})"
+        } else {
+            "कार्यस्थल पर सुरक्षा और काम के सही संचालन के लिए इस फलक को समझना आवश्यक है।"
+        }
+
+        val vocabulary = extractVocabFromOcrText(cleanOcr, ctx, ragMatch)
+
+        val practice = if (ragMatch != null && ragMatch.betterPhrasing.isNotBlank()) {
+            ragMatch.betterPhrasing
+        } else if (vocabulary.isNotEmpty()) {
+            "${vocabulary.first().l2Word} बोला."
+        } else {
+            "$firstLine बोला."
+        }
+
+        return MicroLesson(
+            topic = topic,
+            explanation = explanation,
+            vocabulary = vocabulary,
+            practicePrompt = practice,
+            translation = translation,
+            source = "rag_synthesized",
         )
     }
 
@@ -205,20 +324,28 @@ class BoliAiLayer(
         val cleanOcr = cleanOcrText(ocrText)
         val textToProcess = if (cleanOcr.isNotBlank()) cleanOcr else ocrText.trim()
 
-        if (gemma.isAvailable && textToProcess.isNotBlank()) {
+        val ragMatch = knowledgeStore?.queryRelevantKnowledge(
+            utterance = textToProcess,
+            domain = "signboard",
+            language = ctx.l2,
+            allowFallback = false
+        )
+
+        if (gemma?.isAvailable == true && textToProcess.isNotBlank()) {
             val prompt = GemmaPromptBuilder.buildTranslationPrompt(textToProcess, ctx)
-            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            val raw = gemma?.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val cleaned = cleanLine(raw)
                     .replace(Regex("^(?i)(?:TRANSLATION|TRANS|MEANING)\\s*[:\\-—]\\s*"), "")
                     .replace(Regex("^[\"']|[\"']$"), "")
                     .trim()
-                if (cleaned.isNotBlank()) {
+                if (cleaned.isNotBlank() && !isParrot(cleaned)) {
                     return AiResponse(cleaned, AiSource.GEMMA, System.currentTimeMillis() - t0)
                 }
             }
         }
-        val fallback = deterministic.translateOcrText(textToProcess, ctx)
+
+        val fallback = ragMatch?.groundTruthL1 ?: deterministic.translateOcrText(textToProcess, ctx)
         return AiResponse(fallback, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
     }
 
@@ -234,9 +361,9 @@ class BoliAiLayer(
         val cleanOcr = cleanOcrText(ocrText)
         val textToProcess = if (cleanOcr.isNotBlank()) cleanOcr else ocrText.trim()
 
-        if (gemma.isAvailable && textToProcess.isNotBlank()) {
+        if (gemma?.isAvailable == true && textToProcess.isNotBlank()) {
             val prompt = GemmaPromptBuilder.buildVocabularyPrompt(textToProcess, ctx)
-            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            val raw = gemma?.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val vocab = parseVocabResponse(raw)
                 if (vocab.isNotEmpty()) {
@@ -257,9 +384,9 @@ class BoliAiLayer(
         ctx: GemmaContext,
     ): AiResponse<String> {
         val t0 = System.currentTimeMillis()
-        if (gemma.isAvailable) {
+        if (gemma?.isAvailable == true) {
             val prompt = GemmaPromptBuilder.buildExplanationPrompt(phrase, ctx)
-            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            val raw = gemma?.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val clean = cleanLine(raw).replace(Regex("^(?i)(?:EXPLANATION|EXPLAIN)\\s*[:\\-—]\\s*"), "")
                 return AiResponse(clean.trim(), AiSource.GEMMA, System.currentTimeMillis() - t0)
@@ -290,17 +417,25 @@ class BoliAiLayer(
         val t0 = System.currentTimeMillis()
         val historyWithUser = history + DialogueTurn("user", userSpokenText)
 
-        if (gemma.isAvailable) {
+        // Tier 1: Query Local Micro-RAG Knowledge Store for factual workplace grounding
+        val groundTruth = knowledgeStore?.queryRelevantKnowledge(
+            utterance = userSpokenText,
+            domain = ctx.occupation.ifBlank { "construction" },
+            language = ctx.l2
+        )
+
+        if (gemma?.isAvailable == true) {
             val prompt = GemmaPromptBuilder.buildRoleplayNextTurnPrompt(
                 history = historyWithUser,
                 ctx = ctx,
                 turnNumber = turnNumber,
                 maxTurns = maxTurns,
                 mood = mood,
+                groundTruth = groundTruth,
             )
-            val raw = gemma.generate(prompt, temperature = GemmaEngine.ROLEPLAY_TEMPERATURE)
+            val raw = gemma?.generate(prompt, temperature = GemmaEngine.ROLEPLAY_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
-                val turn = parseRoleplayResponse(raw, ctx, userSpokenText)
+                val turn = parseRoleplayResponse(raw, ctx, userSpokenText, groundTruth)
                 if (turn != null && LlmOutputSanitizer.isValidL2Output(turn.text, ctx.l2) && !isParrotOrRepetition(turn.text, userSpokenText, history)) {
                     val ms = System.currentTimeMillis() - t0
                     Log.i(TAG, "Gemma roleplay turn in ${ms}ms with fluency ${turn.fluencyScore}")
@@ -323,10 +458,35 @@ class BoliAiLayer(
                         "latency_ms" to ms,
                     )
                 } else {
-                    Log.w(TAG, "Gemma roleplay turn failed validation, parrot or repetition checks, falling back to deterministic")
+                    Log.w(TAG, "SLM roleplay turn failed validation, parrot or repetition checks, falling back")
                 }
             }
         }
+
+        // Tier 3 Safety Fallback: Use verified Micro-RAG Ground Truth directly if available
+        if (groundTruth != null && LlmOutputSanitizer.isValidL2Output(groundTruth.groundTruthL2, ctx.l2)) {
+            val ms = System.currentTimeMillis() - t0
+            Log.i(TAG, "Micro-RAG ground truth direct fulfillment in ${ms}ms")
+            return mapOf(
+                "recognized_transcript" to userSpokenText,
+                "is_intent_matched" to true,
+                "matched_intent" to "rag_ground_truth",
+                "next_node_id" to "rag_node",
+                "prompt_l2" to groundTruth.groundTruthL2,
+                "prompt_transliteration" to "",
+                "prompt_l1" to groundTruth.groundTruthL1,
+                "pre_rendered_audio_path" to null,
+                "pronunciation_score" to null,
+                "fluency_score" to calculateHeuristicFluency(userSpokenText, ctx.l2),
+                "weak_phonemes" to emptyList<String>(),
+                "articulatory_hint" to groundTruth.coachingHint,
+                "natural_phrasing" to groundTruth.betterPhrasing,
+                "intent_explanation" to "कामाच्या गरजेनुसार अचूक उत्तर आहे.",
+                "ai_source" to "rag_ground_truth",
+                "latency_ms" to ms,
+            )
+        }
+
         // Fallback: preserve original stub response with calculated heuristic fluency
         val fallbackResult = deterministic.nextRoleplayTurn(historyWithUser, situationId, currentNodeId, ctx).toMutableMap()
         fallbackResult["fluency_score"] = calculateHeuristicFluency(userSpokenText, ctx.l2)
@@ -770,7 +930,7 @@ class BoliAiLayer(
         val defaultL1 = if (fallbackL1.isNotBlank() && !fallbackL1.contains("काम समय पर") && !fallbackL1.contains("काम चल रहा है")) fallbackL1 else selectedScenario.l1
         val activeMood = mood ?: selectedScenario.mood
 
-        if (gemma.isAvailable) {
+        if (gemma?.isAvailable == true) {
             val angle = scenarioAngle ?: selectedScenario.angle
             val prompt = GemmaPromptBuilder.buildRoleplayOpenerPrompt(
                 persona = persona,
@@ -779,7 +939,7 @@ class BoliAiLayer(
                 scenarioAngle = angle,
                 mood = activeMood,
             )
-            val raw = gemma.generate(prompt, temperature = GemmaEngine.ROLEPLAY_TEMPERATURE)
+            val raw = gemma?.generate(prompt, temperature = GemmaEngine.ROLEPLAY_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val lines = normalizeLlmOutputToLines(raw)
                 val l2Raw = findTagValue(lines, "L2") ?: ""
@@ -860,9 +1020,9 @@ class BoliAiLayer(
         ctx: GemmaContext,
     ): AiResponse<SpokenIntentResult> {
         val t0 = System.currentTimeMillis()
-        if (gemma.isAvailable && spokenText.isNotBlank()) {
+        if (gemma?.isAvailable == true && spokenText.isNotBlank()) {
             val evalPrompt = GemmaPromptBuilder.buildEvaluateSpokenIntentPrompt(targetPhrase, prompt, spokenText, ctx)
-            val raw = gemma.generate(evalPrompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            val raw = gemma?.generate(evalPrompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val lines = normalizeLlmOutputToLines(raw)
                 val matchVal = findTagValue(lines, "MATCH") ?: ""
@@ -900,9 +1060,9 @@ class BoliAiLayer(
         ctx: GemmaContext,
     ): AiResponse<List<DynamicExercise>> {
         val t0 = System.currentTimeMillis()
-        if (gemma.isAvailable) {
+        if (gemma?.isAvailable == true) {
             val prompt = GemmaPromptBuilder.buildPracticeDrillsPrompt(situation, domain, ctx)
-            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            val raw = gemma?.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val exercises = parseDynamicExercises(raw)
                 if (exercises.isNotEmpty()) {
@@ -924,9 +1084,9 @@ class BoliAiLayer(
         ctx: GemmaContext,
     ): AiResponse<PeerTurnCoachResult> {
         val t0 = System.currentTimeMillis()
-        if (gemma.isAvailable && spokenText.isNotBlank()) {
+        if (gemma?.isAvailable == true && spokenText.isNotBlank()) {
             val prompt = GemmaPromptBuilder.buildPeerCoachPrompt(spokenText, speakerRole, ctx)
-            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            val raw = gemma?.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val lines = normalizeLlmOutputToLines(raw)
                 val trans = findTagValue(lines, "TRANS|TRANSLATION") ?: ""
@@ -956,9 +1116,9 @@ class BoliAiLayer(
         ctx: GemmaContext,
     ): AiResponse<DailyMission> {
         val t0 = System.currentTimeMillis()
-        if (gemma.isAvailable) {
+        if (gemma?.isAvailable == true) {
             val prompt = GemmaPromptBuilder.buildDailyMissionPrompt(ctx)
-            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            val raw = gemma?.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val parsed = parseDailyMission(raw, ctx)
                 if (parsed != null) {
@@ -985,9 +1145,9 @@ class BoliAiLayer(
             return AiResponse(emptyFallback, AiSource.DETERMINISTIC_FALLBACK, System.currentTimeMillis() - t0)
         }
 
-        if (gemma.isAvailable) {
+        if (gemma?.isAvailable == true) {
             val prompt = GemmaPromptBuilder.buildListenAroundPrompt(cleanedPhrase, ctx)
-            val raw = gemma.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
+            val raw = gemma?.generate(prompt, temperature = GemmaEngine.STRUCTURED_TEMPERATURE)
             if (!raw.isNullOrBlank()) {
                 val parsed = parseHeardPhraseAnalysis(raw, cleanedPhrase, ctx)
                 if (parsed != null) {
@@ -1007,6 +1167,54 @@ class BoliAiLayer(
         private const val TAG = "SeedheBolAi"
 
         private const val ALL_KNOWN_TAGS = "L2|L1|FLUENCY|SCORE|RATING|BETTER|NATURAL|FEEDBACK|HINT|TIP|TOPIC|EXPLANATION|WORD|PRACTICE|MATCH|TITLE|NATIVE_TITLE|NPC_ROLE|OBJECTIVE|OBJECTIVE_NATIVE|OPENER_L2|OPENER_L1|TARGET_WORDS|MAX_TURNS|NPC_L2|NPC_L1|SUCCESS|MEANING|TONE_INTENT|IMPORTANT_WORDS|NATURAL_REPLY|REPLY_NATIVE|REPLY_ROMAN|TRANS|TRANSLATION|VOCAB|D[1-3]_[A-Z]+"
+
+        val INDIC_WORKPLACE_VOCAB_DICT: Map<String, Pair<String, String>> = mapOf(
+            "मोबाईल" to Pair("मोबाइल (mobile)", "mobile"),
+            "फोन" to Pair("फ़ोन (phone)", "phone"),
+            "फोनचा" to Pair("फ़ोन का (phone's)", "phone-cha"),
+            "वापर" to Pair("उपयोग / इस्तेमाल (use)", "vaapar"),
+            "वाप" to Pair("उपयोग (use)", "vaapar"),
+            "करू" to Pair("करना (do)", "karoo"),
+            "नये" to Pair("नहीं / मना (prohibited)", "naye"),
+            "नका" to Pair("मत / मत कीजिए (do not)", "naka"),
+            "प्रवेश" to Pair("दाखिला / प्रवेश (entry)", "pravesh"),
+            "निषिद्ध" to Pair("मना / वर्जित (forbidden)", "nishiddha"),
+            "धूम्रपान" to Pair("धूम्रपान / बीड़ी-सिगरेट (smoking)", "dhoomrapaan"),
+            "सक्त" to Pair("सख्त / कड़ा (strict)", "sakta"),
+            "मनाई" to Pair("रोक / मना (prohibited)", "manaai"),
+            "सावधान" to Pair("सतर्क / सावधान (caution)", "saavdhaan"),
+            "धोका" to Pair("खतरा (danger)", "dhoka"),
+            "सुरक्षा" to Pair("सुरक्षा / बचाव (safety)", "suraksha"),
+            "हेल्मेट" to Pair("हेलमेट (helmet)", "helmet"),
+            "बूट" to Pair("जूते (boots)", "boots"),
+            "पाणी" to Pair("पानी (water)", "paani"),
+            "पिण्याचे" to Pair("पीने का (drinking)", "pinyache"),
+            "स्वच्छ" to Pair("साफ / स्वच्छ (clean)", "swachh"),
+            "काम" to Pair("काम / कार्य (work)", "kaam"),
+            "चालू" to Pair("जारी / शुरू (in progress)", "chaaloo"),
+            "पुढील" to Pair("आगे का (next / ahead)", "pudhil"),
+            "पुढे" to Pair("आगे (ahead)", "pudhe"),
+            "थांबा" to Pair("रुको / ठहरिए (stop)", "thaamba"),
+            "सिमेंट" to Pair("सीमेंट (cement)", "cement"),
+            "विटा" to Pair("ईंटें (bricks)", "veeta"),
+            "पाइप" to Pair("पाइप (pipe)", "pipe"),
+            "वायरिंग" to Pair("तार / वायरिंग (wiring)", "wiring"),
+            "शॉर्ट" to Pair("शॉर्ट सर्किट (short circuit)", "short"),
+            "गळती" to Pair("रिसाव / टपकना (leak)", "galti"),
+            "पार्सल" to Pair("पार्सल (parcel)", "parcel"),
+            "डिलिव्हरी" to Pair("वितरण / डिलीवरी (delivery)", "delivery"),
+            "कचरा" to Pair("कूड़ा-कचरा (trash)", "kachra"),
+            "कचराकुंडीत" to Pair("कूड़ेदान में (in dustbin)", "kachrakundit"),
+            "पावती" to Pair("रसीद / बिल (receipt)", "paavati"),
+            "दुकान" to Pair("दुकान (shop)", "dukaan"),
+            "गेट" to Pair("दरवाजा / गेट (gate)", "gate"),
+            "पास" to Pair("अनुमति पत्र / पास (pass)", "pass"),
+            "चौकीदार" to Pair("सुरक्षा गार्ड (security guard)", "chowkidar"),
+            "तपासणी" to Pair("जांच / चेकिंग (inspection)", "tapasni"),
+            "विजेचा" to Pair("बिजली का (electrical)", "vijecha"),
+            "हात" to Pair("हाथ (hand)", "haat"),
+            "लावू" to Pair("लगाना / छूना (touch)", "laavoo"),
+        )
 
         private val COMMON_CONVERSATIONAL_WORDS = setOf(
             "साहेब", "सर", "काम", "आहे", "नाही", "होय", "हो", "भावा", "दादा", "जी", "है", "नहीं", "हाँ", "कर", "ते"
@@ -1063,7 +1271,7 @@ class BoliAiLayer(
 
         fun normalizeLlmOutputToLines(raw: String): List<String> {
             val withNewlines = raw
-                .replace(Regex("(?i)[#*\\s]+(?=(?:$ALL_KNOWN_TAGS)\\s*[:\\-—–=])"), "\n")
+                .replace(Regex("(?i)(?=(?<![A-Za-z0-9_])(?:$ALL_KNOWN_TAGS)(?![A-Za-z0-9_])\\s*[:\\-—–=])"), "\n")
                 .replace(Regex("##+"), "\n")
             return withNewlines.lines().map { it.trim() }.filter { it.isNotBlank() }
         }
@@ -1076,56 +1284,121 @@ class BoliAiLayer(
         }
 
         fun findTagValue(lines: List<String>, tagPattern: String): String? {
-            val regex = Regex("^(?i)(?:$tagPattern)\\s*[:\\-—–=]\\s*(.*)$")
+            val regex = Regex("(?i)(?:^|.*?)(?<![A-Za-z0-9_])(?:$tagPattern)(?![A-Za-z0-9_])\\s*[:\\-—–=]\\s*(.*)$")
             for (line in lines) {
                 val cleaned = cleanLine(line)
-                val match = regex.find(cleaned)
+                val match = regex.find(cleaned) ?: regex.find(line)
                 if (match != null) {
                     var value = match.groupValues[1].trim()
                     val nextTag = Regex("(?i)\\s*(?:##|\\*\\*|\\s)\\s*(?:$ALL_KNOWN_TAGS)\\s*[:\\-—–=]").find(value)
                     if (nextTag != null) {
                         value = value.substring(0, nextTag.range.first).trim()
                     }
-                    if (value.isNotBlank()) return value
+                    val isPlaceholder = value.matches(
+                        Regex("(?i)^(?:2-4 word summary|meaning of this signboard|1 sentence in|word_in_|second_word_|1 short spoken sentence|title in|topic in).*")
+                    )
+                    if (value.isNotBlank() && !isPlaceholder) return value
                 }
             }
             return null
         }
-    }
 
-    /**
-     * Parses the combined OCR-lesson prompt response with high tolerance:
-     *   - Handles markdown headers or bullets (`**TOPIC:**`, `- TOPIC:`, `### TOPIC:`)
-     *   - Handles prompt completion when topic is placed on the first output line
-     *   - Extracts translation, explanation, vocab, and practice sentence
-     */
-    private fun parseOcrLessonResponse(raw: String, fallbackTopic: String): MicroLesson {
-        val lines = normalizeLlmOutputToLines(raw)
+        fun parseVocabLines(lines: List<String>): List<VocabItem> {
+            val vocabList = mutableListOf<VocabItem>()
+            val nonVocabTags = Regex("^(?i)(?:TOPIC|TITLE|TRANSLATION|TRANS|MEANING|EXPLANATION|EXPLAIN|NOTE|PRACTICE|SPEAK|PRACTICE_PROMPT|SENTENCE|SIGNBOARD|TASK|RULES|EXAMPLE)\\s*[:\\-—–=]")
+            val forbiddenL2 = setOf(
+                "TRANSLATION", "EXPLANATION", "PRACTICE", "TOPIC", "TITLE",
+                "WORD", "VOCAB", "MEANING", "NOTE", "SIGNBOARD", "TASK", "RULES", "EXAMPLE", "SPEAK"
+            )
 
-        val explicitTopic = findTagValue(lines, "TOPIC|TITLE")
-        val topic = explicitTopic ?: run {
-            // If the model completed the prompt immediately after "TOPIC:"
-            val firstCleaned = lines.map { cleanLine(it) }.firstOrNull { it.isNotBlank() }
-            if (firstCleaned != null && !firstCleaned.contains(Regex("^(?i)(TRANSLATION|EXPLANATION|WORD|PRACTICE)"))) {
-                firstCleaned.take(40)
-            } else {
-                fallbackTopic
+            for (rawLine in lines) {
+                val trimmed = rawLine.trim()
+                if (trimmed.isBlank()) continue
+
+                val line = cleanLine(trimmed)
+                // Strictly reject lines that start with any known non-vocab tag
+                if (nonVocabTags.containsMatchIn(line) || nonVocabTags.containsMatchIn(trimmed)) {
+                    continue
+                }
+
+                val isExplicitVocab = line.contains(Regex("^(?i)(?:WORD|VOCAB|KEYWORD)\\s*[:\\-—–=]"))
+                val content = line.replace(Regex("^(?i)(?:WORD|VOCAB|KEYWORD)\\s*[:\\-—–=]\\s*"), "").trim()
+
+                // If explicit prefix, allow : as separator; if NOT explicit, require =, —, or –
+                val sepRegex = if (isExplicitVocab) {
+                    Regex("[=—–:]|\\s+-\\s+")
+                } else {
+                    Regex("[=—–]|\\s+-\\s+")
+                }
+
+                val sepMatch = sepRegex.find(content) ?: continue
+                val l2 = content.substring(0, sepMatch.range.first).trim()
+                    .replace(Regex("[\"']"), "")
+                val rest = content.substring(sepMatch.range.last + 1).trim()
+                    .replace(Regex("[\"']"), "")
+
+                if (l2.isBlank() || rest.isBlank()) continue
+
+                // Ensure l2 is not an English tag/header or placeholder
+                if (forbiddenL2.contains(l2.uppercase())) continue
+                if (l2.matches(Regex("^(?i)(?:TOPIC|TITLE|TRANSLATION|EXPLANATION|PRACTICE|WORD|VOCAB|NOTE).*"))) continue
+                if (l2.contains("word_in_", ignoreCase = true) || rest.contains("meaning_in_", ignoreCase = true) || l2.contains("second_word", ignoreCase = true)) continue
+
+                // Extract romanization from parens () or brackets []
+                val parenMatch = Regex("[\\[(]([^\\])]+)[\\])]").find(rest)
+                val roman = parenMatch?.groupValues?.get(1)?.trim() ?: ""
+                val l1 = if (parenMatch != null) {
+                    rest.removeRange(parenMatch.range).trim()
+                } else {
+                    rest
+                }
+
+                if (l2.isNotBlank() && l1.isNotBlank()) {
+                    vocabList.add(VocabItem(l2Word = l2, l1Meaning = l1, romanization = roman))
+                }
             }
+            return vocabList.distinctBy { it.l2Word }.take(5)
         }
 
-        val translation = findTagValue(lines, "TRANSLATION|TRANS|MEANING") ?: ""
-        val explanation = findTagValue(lines, "EXPLANATION|EXPLAIN|MEANING_DETAIL|NOTE") ?: ""
-        val practice = findTagValue(lines, "PRACTICE|SPEAK|PRACTICE_PROMPT|SENTENCE") ?: ""
-        val vocab = parseVocabLines(lines)
+        fun parseOcrLessonResponse(raw: String, fallbackTopic: String): MicroLesson {
+            val lines = normalizeLlmOutputToLines(raw)
 
-        return MicroLesson(
-            topic = topic,
-            explanation = explanation,
-            vocabulary = vocab,
-            practicePrompt = practice,
-            translation = translation,
-            source = "gemma",
-        )
+            val explicitTopic = findTagValue(lines, "TOPIC|TITLE")
+            val candidateTopic = explicitTopic ?: run {
+                // If the model completed the prompt immediately after "TOPIC:" without repeating tag
+                val firstCleaned = lines.map { cleanLine(it) }.firstOrNull { it.isNotBlank() }
+                if (firstCleaned != null && !firstCleaned.contains(Regex("^(?i)(TOPIC|TITLE|TRANSLATION|EXPLANATION|WORD|PRACTICE)"))) {
+                    firstCleaned.take(40)
+                } else {
+                    fallbackTopic
+                }
+            }
+            val cleanedCandidate = candidateTopic.replace(Regex("^(?i)(?:TOPIC|TITLE)\\s*[:\\-—–=]\\s*"), "").trim()
+            val topic = if (cleanedCandidate.isBlank() ||
+                cleanedCandidate.matches(Regex("^(?i)(?:title|topic|summary)\\s+(?:in|for|of)\\s+.*")) ||
+                cleanedCandidate.matches(Regex("(?i).*(?:2-4 word summary|summary of this sign).*")) ||
+                cleanedCandidate.equals("Title", ignoreCase = true) ||
+                cleanedCandidate.equals("Topic", ignoreCase = true)
+            ) {
+                fallbackTopic
+            } else {
+                cleanedCandidate
+            }
+
+            val translation = findTagValue(lines, "TRANSLATION|TRANS|MEANING") ?: ""
+            val explanation = findTagValue(lines, "EXPLANATION|EXPLAIN|MEANING_DETAIL|NOTE") ?: ""
+            val practice = findTagValue(lines, "PRACTICE|SPEAK|PRACTICE_PROMPT|SENTENCE") ?: ""
+            val vocab = parseVocabLines(lines)
+
+            return MicroLesson(
+                topic = topic,
+                explanation = explanation,
+                vocabulary = vocab,
+                practicePrompt = practice,
+                translation = translation,
+                source = "gemma",
+            )
+        }
     }
 
     private fun parseDailyMission(raw: String, ctx: GemmaContext): DailyMission? {
@@ -1258,38 +1531,6 @@ class BoliAiLayer(
     private fun parseVocabResponse(raw: String): List<VocabItem> =
         parseVocabLines(raw.lines().map { it.trim() }.filter { it.isNotBlank() })
 
-    private fun parseVocabLines(lines: List<String>): List<VocabItem> {
-        val vocabList = mutableListOf<VocabItem>()
-
-        for (rawLine in lines) {
-            val line = cleanLine(rawLine)
-            // Strip leading "WORD:" or "VOCAB:" if present
-            val content = line.replace(Regex("^(?i)(?:WORD|VOCAB)\\s*[:\\-—]\\s*"), "").trim()
-
-            // Delimiters: =, —, –, :, or space-hyphen-space
-            val sepMatch = Regex("[=—–:]|\\s+-\\s+").find(content) ?: continue
-            val l2 = content.substring(0, sepMatch.range.first).trim()
-                .replace(Regex("[\"']"), "")
-            val rest = content.substring(sepMatch.range.last + 1).trim()
-                .replace(Regex("[\"']"), "")
-
-            if (l2.isBlank() || rest.isBlank()) continue
-
-            // Extract romanization from parens () or brackets []
-            val parenMatch = Regex("[\\[(]([^\\])]+)[\\])]").find(rest)
-            val roman = parenMatch?.groupValues?.get(1)?.trim() ?: ""
-            val l1 = if (parenMatch != null) {
-                rest.removeRange(parenMatch.range).trim()
-            } else {
-                rest
-            }
-
-            if (l2.isNotBlank() && l1.isNotBlank()) {
-                vocabList.add(VocabItem(l2Word = l2, l1Meaning = l1, romanization = roman))
-            }
-        }
-        return vocabList.distinctBy { it.l2Word }.take(5)
-    }
 
     /**
      * Parses roleplay response:
@@ -1299,7 +1540,12 @@ class BoliAiLayer(
      *   FEEDBACK: <feedback on learner's utterance>
      *   HINT: <pronunciation tip or "none">
      */
-    private fun parseRoleplayResponse(raw: String, ctx: GemmaContext, userSpokenText: String = ""): DialogueTurn? {
+    private fun parseRoleplayResponse(
+        raw: String,
+        ctx: GemmaContext,
+        userSpokenText: String = "",
+        groundTruth: WorkplaceKnowledgeItem? = null,
+    ): DialogueTurn? {
         val lines = normalizeLlmOutputToLines(raw)
         var l2Raw = findTagValue(lines, "L2|REPLY|RESPONSE") ?: ""
         if (l2Raw.isBlank()) {
@@ -1309,15 +1555,18 @@ class BoliAiLayer(
             }
         }
         l2Raw = LlmOutputSanitizer.stripPlaceholders(l2Raw)
-        if (l2Raw.isBlank()) return null
 
         var l2Text = l2Raw
-        if (!LlmOutputSanitizer.isValidL2Output(l2Text, ctx.l2)) {
+        if (l2Text.isBlank() || !LlmOutputSanitizer.isValidL2Output(l2Text, ctx.l2)) {
             val sanitized = LlmOutputSanitizer.sanitize(l2Raw)
             if (sanitized != null && LlmOutputSanitizer.isValidL2Output(sanitized, ctx.l2)) {
                 l2Text = sanitized
+            } else if (groundTruth != null && LlmOutputSanitizer.isValidL2Output(groundTruth.groundTruthL2, ctx.l2)) {
+                // Tier 3: Auto-repair using verified Micro-RAG Ground Truth!
+                Log.i(TAG, "Auto-repaired L2 output using verified Micro-RAG ground truth: ${groundTruth.groundTruthL2}")
+                l2Text = groundTruth.groundTruthL2
             } else {
-                Log.w(TAG, "Gemma roleplay response failed isValidL2Output check for ${ctx.l2}: '$l2Text'")
+                Log.w(TAG, "SLM roleplay response failed isValidL2Output check for ${ctx.l2}: '$l2Text'")
                 return null
             }
         }
@@ -1325,7 +1574,7 @@ class BoliAiLayer(
         val l1Raw = findTagValue(lines, "L1|TRANSLATION|MEANING") ?: ""
         var l1Text = LlmOutputSanitizer.stripPlaceholders(l1Raw)
         if (l1Text.isBlank()) {
-            l1Text = deterministic.translateOcrText(l2Text, ctx).replace(Regex("^\\[.*?\\]\\s*"), "")
+            l1Text = groundTruth?.groundTruthL1 ?: deterministic.translateOcrText(l2Text, ctx).replace(Regex("^\\[.*?\\]\\s*"), "")
         }
 
         val fluencyRaw = findTagValue(lines, "FLUENCY|SCORE|RATING")
@@ -1333,13 +1582,22 @@ class BoliAiLayer(
         val fluencyScore = (parsedFluency ?: calculateHeuristicFluency(userSpokenText, ctx.l2)).coerceIn(0, 100)
 
         val betterRaw = findTagValue(lines, "BETTER|NATURAL|POLISH") ?: ""
-        val betterWay = LlmOutputSanitizer.stripPlaceholders(betterRaw)
+        var betterWay = LlmOutputSanitizer.stripPlaceholders(betterRaw)
+        if (betterWay.isBlank() && groundTruth != null) {
+            betterWay = groundTruth.betterPhrasing
+        }
 
         val feedbackRaw = findTagValue(lines, "FEEDBACK|DIAGNOSTIC|NOTE") ?: ""
-        val feedback = LlmOutputSanitizer.stripPlaceholders(feedbackRaw)
+        var feedback = LlmOutputSanitizer.stripPlaceholders(feedbackRaw)
+        if (feedback.isBlank() && groundTruth != null) {
+            feedback = "उत्तर स्पष्ट आहे आणि कामाच्या संदर्भाशी जुळणारे आहे."
+        }
 
         val hintRaw = findTagValue(lines, "HINT|TIP|PRONUNCIATION") ?: ""
-        val hint = if (hintRaw.equals("none", ignoreCase = true)) "" else LlmOutputSanitizer.stripPlaceholders(hintRaw)
+        var hint = if (hintRaw.equals("none", ignoreCase = true)) "" else LlmOutputSanitizer.stripPlaceholders(hintRaw)
+        if (hint.isBlank() && groundTruth != null) {
+            hint = groundTruth.coachingHint
+        }
 
         return DialogueTurn(
             speaker = "bot",

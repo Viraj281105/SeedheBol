@@ -323,21 +323,33 @@ class FastPitchTts private constructor(private val context: Context) {
 
     // ---- cache -------------------------------------------------------------
 
+    /** Fast in-memory LRU cache: holds the 64 most recently played audio clips in RAM for <1ms playback. */
+    private val memoryPcmCache = android.util.LruCache<String, ShortArray>(64)
+
+    fun clearMemoryCache() {
+        memoryPcmCache.evictAll()
+        Log.i(TAG, "FastPitch in-memory PCM cache cleared")
+    }
+
     private fun keyFile(text: String): File {
         val sha = MessageDigest.getInstance("SHA-256").digest(text.toByteArray())
         return File(cacheDir, sha.joinToString("") { "%02x".format(it) } + ".pcm")
     }
 
     private fun cached(text: String): ShortArray? {
+        memoryPcmCache.get(text)?.let { return it }
         val f = keyFile(text)
         if (!f.exists() || f.length() == 0L) return null
         val bytes = f.readBytes()
-        return ShortArray(bytes.size / 2) { i ->
+        val pcm = ShortArray(bytes.size / 2) { i ->
             ((bytes[i * 2].toInt() and 0xFF) or (bytes[i * 2 + 1].toInt() shl 8)).toShort()
         }
+        memoryPcmCache.put(text, pcm)
+        return pcm
     }
 
     private fun store(text: String, pcm: ShortArray) {
+        memoryPcmCache.put(text, pcm)
         val bytes = ByteArray(pcm.size * 2)
         for (i in pcm.indices) {
             bytes[i * 2] = (pcm[i].toInt() and 0xFF).toByte()

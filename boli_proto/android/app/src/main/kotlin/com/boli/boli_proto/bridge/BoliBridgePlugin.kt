@@ -110,15 +110,17 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
         context = binding.applicationContext
 
         // Instantiate AI components
+        val knowledgeStore = com.boli.boli_proto.WorkplaceKnowledgeStore(context)
         fallback = DeterministicFallback()
         gemmaEngine = GemmaEngine(context)
-        aiLayer = BoliAiLayer(gemmaEngine, fallback)
+        aiLayer = BoliAiLayer(gemmaEngine, fallback, knowledgeStore)
         ocr = MlKitOcr()
         memoryStore = LearnerMemoryStore(context)
         sessionCtx = memoryStore.buildPersonalizedGemmaContext()
 
-        // Warm up Gemma on a background thread (same pattern as ASR/TTS in MainActivity)
+        // Staged Warm-up: yield flash storage I/O and CPU to Flutter UI during cold boot
         warmUpJob = pluginScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(1000)
             runCatching { gemmaEngine.warmUp() }
                 .onFailure { android.util.Log.e("BoliBridge", "Gemma warmup failed", it) }
         }
@@ -874,26 +876,14 @@ class BoliBridgePlugin : FlutterPlugin, MethodCallHandler {
                 )
                 withContext(Dispatchers.Main) { result.success(resultMap) }
             } catch (t: Throwable) {
-                Log.e(TAG, "handleGenerateLessonFromOcr failed, using fallback", t)
-                val ctx = memoryStore.buildPersonalizedGemmaContext(scenario = topicHint ?: sessionCtx.scenario, ocrText = ocrText)
-                val lesson = fallback.generateMicroLesson(topicHint ?: ocrText.take(20), ctx)
-                val resultMap = mapOf(
-                    "topic" to lesson.topic,
-                    "translation" to lesson.translation,
-                    "explanation" to lesson.explanation,
-                    "vocabulary" to lesson.vocabulary.map { v ->
-                        mapOf(
-                            "l2_word" to v.l2Word,
-                            "l1_meaning" to v.l1Meaning,
-                            "romanization" to v.romanization,
-                            "example_sentence" to v.exampleSentence,
-                        )
-                    },
-                    "practice_prompt" to lesson.practicePrompt,
-                    "source" to "fallback",
-                    "latency_ms" to 0L,
-                )
-                withContext(Dispatchers.Main) { result.success(resultMap) }
+                Log.e(TAG, "handleGenerateLessonFromOcr failed: ${t.message}", t)
+                withContext(Dispatchers.Main) {
+                    result.error(
+                        "LESSON_GENERATION_FAILED",
+                        "पाटीचा अर्थ लावता आला नाही. कृपया स्पष्ट आणि जवळून फोटो काढा.\n(Could not understand signboard. Please frame clearly and scan again.)",
+                        t.message
+                    )
+                }
             }
         }
     }

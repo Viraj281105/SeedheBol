@@ -31,6 +31,40 @@ class MainActivity : FlutterActivity() {
     // Canonical on-device speech synthesis via AI4Bharat FastPitch + HiFi-GAN (22.05 kHz).
     private val tts by lazy { FastPitchTts.getInstance(applicationContext) }
 
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Request Snapdragon 8 Elite high refresh rate display mode (120Hz / 144Hz AMOLED)
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val supported = display?.supportedModes ?: emptyArray()
+                val fastest = supported.maxByOrNull { it.refreshRate }
+                if (fastest != null && fastest.refreshRate > 60f) {
+                    val lp = window.attributes
+                    lp.preferredDisplayModeId = fastest.modeId
+                    window.attributes = lp
+                    Log.i(TAG, "Display set to high refresh mode: ${fastest.refreshRate}Hz (modeId=${fastest.modeId})")
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "High refresh rate request skipped", t)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        Log.i(TAG, "onTrimMemory received level: $level")
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            // App UI is hidden or memory is constrained — evict in-memory audio cache to prevent LMK kills
+            try {
+                FastPitchTts.getInstance(applicationContext).clearMemoryCache()
+            } catch (_: Throwable) {}
+        }
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            System.gc()
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 

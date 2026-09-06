@@ -239,4 +239,90 @@ class LlmReliabilityTest {
         assertEquals("जी साहब, मैं तुरंत रख देता हूँ", BoliAiLayer.findTagValue(listenLines, "REPLY_NATIVE"))
         assertEquals("Hoy saheb, mee lagech thevto", BoliAiLayer.findTagValue(listenLines, "REPLY_ROMAN"))
     }
+
+    @Test
+    fun testOcrLessonParsingDoesNotIncludeHeadersAsVocabulary() {
+        val rawLlmOutput = """
+            TOPIC: Title in hi
+            TRANSLATION: खतरा! आगे काम चल रहा है
+            EXPLANATION: यह निर्माण स्थल पर सुरक्षा चेतावनी बोर्ड है। हमेशा ध्यान से काम करें।
+            WORD: धोका = खतरा (dhoka)
+            WORD: पुढे = आगे (pudhe)
+            PRACTICE: येथे काळजीपूर्वक काम करा.
+        """.trimIndent()
+
+        val lesson = BoliAiLayer.parseOcrLessonResponse(rawLlmOutput, fallbackTopic = "पाटी वाचन")
+
+        // 1. Topic must NOT be placeholder "Title in hi"
+        assertEquals("पाटी वाचन", lesson.topic)
+
+        // 2. Translation, explanation, and practice must match clean text
+        assertEquals("खतरा! आगे काम चल रहा है", lesson.translation)
+        assertEquals("यह निर्माण स्थल पर सुरक्षा चेतावनी बोर्ड है। हमेशा ध्यान से काम करें।", lesson.explanation)
+        assertEquals("येथे काळजीपूर्वक काम करा.", lesson.practicePrompt)
+
+        // 3. Vocabulary must ONLY contain actual words, NEVER TRANSLATION, EXPLANATION, or PRACTICE
+        val vocabWords = lesson.vocabulary.map { it.l2Word }
+        assertEquals(listOf("धोका", "पुढे"), vocabWords)
+        assertFalse("Vocabulary must not include TRANSLATION heading", vocabWords.contains("TRANSLATION"))
+        assertFalse("Vocabulary must not include EXPLANATION heading", vocabWords.contains("EXPLANATION"))
+        assertFalse("Vocabulary must not include PRACTICE heading", vocabWords.contains("PRACTICE"))
+    }
+
+    @Test
+    fun testCleanOcrTextStripsBracketAndIconNoise() {
+        val aiLayer = BoliAiLayer()
+        val noisyOcr = "( ) मोबाईल फोनचा वाप करू नये"
+        val cleaned = aiLayer.cleanOcrText(noisyOcr)
+        assertEquals("मोबाईल फोनचा वाप करू नये", cleaned)
+
+        val noisyOcr2 = "[o] प्रवेश निषिद्ध"
+        assertEquals("प्रवेश निषिद्ध", aiLayer.cleanOcrText(noisyOcr2))
+
+        val numberedOcr = "1. विनापरवाना आत जाऊ नका"
+        assertEquals("विनापरवाना आत जाऊ नका", aiLayer.cleanOcrText(numberedOcr))
+    }
+
+    @Test
+    fun testOcrLessonParsingHandlesGemmaConversationalIntroAndMarkdown() {
+        val gemmaChatterOutput = """
+            Sure, here is a short workplace micro-lesson from the photographed signboard:
+            **TOPIC:** मोबाईल फोन वापर बंदी
+            **TRANSLATION:** यहाँ मोबाइल फोन का उपयोग मना है
+            **EXPLANATION:** काम के दौरान सुरक्षा के लिए फोन का उपयोग न करें।
+            **WORD:** मोबाईल = मोबाइल (mobile)
+            **WORD:** वापर = उपयोग (vaapar)
+            **PRACTICE:** कामाच्या वेळी मोबाईल वापरू नका.
+        """.trimIndent()
+
+        val lesson = BoliAiLayer.parseOcrLessonResponse(gemmaChatterOutput, fallbackTopic = "पाटी वाचन")
+        assertEquals("मोबाईल फोन वापर बंदी", lesson.topic)
+        assertEquals("यहाँ मोबाइल फोन का उपयोग मना है", lesson.translation)
+        assertEquals("काम के दौरान सुरक्षा के लिए फोन का उपयोग न करें।", lesson.explanation)
+        assertEquals("कामाच्या वेळी मोबाईल वापरू नका.", lesson.practicePrompt)
+        assertEquals(listOf("मोबाईल", "वापर"), lesson.vocabulary.map { it.l2Word })
+    }
+
+    @Test
+    fun testDirectSynthesisFromOcrTextNeverProducesFakeCementLesson() {
+        val knowledgeStore = WorkplaceKnowledgeStore()
+        val aiLayer = BoliAiLayer(knowledgeStore = knowledgeStore)
+        val ctx = GemmaContext(l1 = "Hindi", l2 = "mr", occupation = "construction", userLevel = "beginner")
+
+        val ragMatch = knowledgeStore.queryRelevantKnowledge(
+            utterance = "मोबाईल फोनचा वाप करू नये",
+            domain = "signboard",
+            language = "mr",
+            allowFallback = false
+        )
+        assertNotNull("Should match mobile phone safety item in Micro-RAG", ragMatch)
+
+        val lesson = aiLayer.synthesizeLessonFromOcrText("मोबाईल फोनचा वाप करू नये", ctx, ragMatch)
+        assertEquals("मोबाईल फोनचा वाप करू नये", lesson.topic)
+        assertTrue("Translation must address mobile phone use prohibition", lesson.translation.contains("मोबाइल फोन"))
+        assertFalse("Must never output cement on a mobile phone sign", lesson.translation.contains("सीमेंट"))
+        assertFalse("Must never output cement in topic", lesson.topic.contains("सिमेंट"))
+        assertTrue("Vocabulary must contain mobile", lesson.vocabulary.any { it.l2Word.contains("मोबाईल") })
+        assertTrue("Practice prompt must be valid", lesson.practicePrompt.isNotBlank())
+    }
 }

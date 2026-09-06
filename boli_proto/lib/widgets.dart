@@ -23,11 +23,12 @@ class ReadinessRing extends StatelessWidget {
       tween: Tween(begin: 0, end: value),
       duration: const Duration(milliseconds: 700),
       curve: Curves.easeOutCubic,
-      builder: (_, v, __) => SizedBox(
-        width: size,
-        height: size,
-        child: CustomPaint(
-          painter: _RingPainter(v, c),
+      builder: (_, v, __) => RepaintBoundary(
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: CustomPaint(
+            painter: _RingPainter(v, c),
           child: showLabel
               ? Center(
                   child: v <= 0
@@ -54,7 +55,8 @@ class ReadinessRing extends StatelessWidget {
               : null,
         ),
       ),
-    );
+    ),
+  );
   }
 }
 

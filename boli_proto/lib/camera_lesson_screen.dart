@@ -158,7 +158,7 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
 
       if (rawText.isEmpty) return;
 
-      // 3. Generate structured lesson via Gemma 3n E2B (or deterministic fallback)
+      // 3. Generate structured lesson via Gemma on-device
       final lessonMap = await _engineChannel.invokeMapMethod<String, dynamic>(
         'generateLessonFromOcr',
         {'ocr_text': rawText},
@@ -172,29 +172,41 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
           _generatingLesson = false;
         });
 
-        // 4. Auto-play the practice prompt or topic via FastPitch TTS
+        // 4. Auto-play the practice prompt or first word via FastPitch TTS
         final speechText = lesson.practicePrompt.isNotEmpty
             ? lesson.practicePrompt
-            : (lesson.vocabulary.isNotEmpty ? lesson.vocabulary.first.l2Word : lesson.topic);
+            : (lesson.vocabulary.isNotEmpty ? lesson.vocabulary.first.l2Word : '');
         if (speechText.isNotEmpty) {
           _speak(speechText);
         }
+      } else {
+        setState(() {
+          _generatingLesson = false;
+          _lessonError = 'पाटीचा अर्थ लावता आला नाही. कृपया पाटी स्पष्ट फ्रेममध्ये धरून पुन्हा प्रयत्न करा.\n(Could not read signboard. Please frame clearly and scan again.)';
+        });
       }
     } on PlatformException catch (e) {
       if (!mounted) return;
       setState(() {
         _scanning = false;
         _generatingLesson = false;
-        _lessonError = e.message ?? 'कॅमेरा प्रक्रिया अयशस्वी झाली. पुन्हा प्रयत्न करा.';
+        _lessonError = e.message ?? 'पाटीचा अर्थ लावता आला नाही. कृपया स्पष्ट आणि जवळून फोटो काढा.';
       });
     }
   }
 
   Future<void> _speak(String text) async {
     if (text.isEmpty) return;
-    // Strip fallback error markers like "[Offline translation unavailable ...]"
-    // so TTS never reads internal error messages aloud.
+    // Strip tag headings (e.g. "TRANSLATION:", "EXPLANATION:") and bracketed placeholders
+    // so TTS never reads internal headings or error markers aloud.
     final cleaned = text
+        .replaceAll(
+          RegExp(
+            r'^(?:TRANSLATION|EXPLANATION|TOPIC|TITLE|PRACTICE|MEANING|WORD|VOCAB)\s*[:\-—–=]\s*',
+            caseSensitive: false,
+          ),
+          '',
+        )
         .split('\n')
         .where((line) => line.isNotEmpty && !line.startsWith('['))
         .join(' ')
@@ -203,7 +215,7 @@ class _CameraLessonScreenState extends State<CameraLessonScreen>
     try {
       await _asrChannel.invokeMethod<String>('speak', {'text': cleaned});
     } on PlatformException {
-      // Offline fallback phrase missing in synth vocab is non-fatal
+      // Non-fatal if specific word is not in pronunciation vocab
     }
   }
 
@@ -409,24 +421,77 @@ class _LessonData {
   });
 
   factory _LessonData.fromMap(Map<String, dynamic> map) {
+    final forbidden = {
+      'translation',
+      'explanation',
+      'practice',
+      'topic',
+      'title',
+      'word',
+      'vocab',
+      'meaning',
+      'note',
+      'speak',
+      'rules',
+      'task',
+    };
+
     final rawVocab = map['vocabulary'] as List? ?? [];
     final vocab = rawVocab
         .whereType<Map>()
         .map(
           (v) => _VocabItem(
-            l2Word: v['l2_word'] as String? ?? '',
-            l1Meaning: v['l1_meaning'] as String? ?? '',
-            romanization: v['romanization'] as String? ?? '',
+            l2Word: (v['l2_word'] as String? ?? '').trim(),
+            l1Meaning: (v['l1_meaning'] as String? ?? '').trim(),
+            romanization: (v['romanization'] as String? ?? '').trim(),
           ),
         )
-        .where((v) => v.l2Word.isNotEmpty)
+        .where((v) {
+          final lower = v.l2Word.toLowerCase();
+          return v.l2Word.isNotEmpty &&
+              !forbidden.contains(lower) &&
+              !lower.startsWith('translation') &&
+              !lower.startsWith('explanation') &&
+              !lower.startsWith('practice');
+        })
         .toList();
 
+    var topic = (map['topic'] as String? ?? '').trim();
+    if (topic.toLowerCase().startsWith('title in') ||
+        topic.toLowerCase().startsWith('topic in') ||
+        topic.toLowerCase() == 'title') {
+      topic = '';
+    }
+
+    var translation = (map['translation'] as String? ?? '').trim();
+    translation = translation
+        .replaceAll(
+          RegExp(r'^(?:TRANSLATION|TRANS|MEANING)\s*[:\-—–=]\s*', caseSensitive: false),
+          '',
+        )
+        .trim();
+
+    var explanation = (map['explanation'] as String? ?? '').trim();
+    explanation = explanation
+        .replaceAll(
+          RegExp(r'^(?:EXPLANATION|EXPLAIN|NOTE)\s*[:\-—–=]\s*', caseSensitive: false),
+          '',
+        )
+        .trim();
+
+    var practice = (map['practice_prompt'] as String? ?? '').trim();
+    practice = practice
+        .replaceAll(
+          RegExp(r'^(?:PRACTICE|SPEAK|SENTENCE)\s*[:\-—–=]\s*', caseSensitive: false),
+          '',
+        )
+        .trim();
+
     return _LessonData(
-      topic: map['topic'] as String? ?? '',
-      translation: map['translation'] as String? ?? '',
-      explanation: map['explanation'] as String? ?? '',
-      practicePrompt: map['practice_prompt'] as String? ?? '',
+      topic: topic,
+      translation: translation,
+      explanation: explanation,
+      practicePrompt: practice,
       vocabulary: vocab,
       source: map['source'] as String? ?? 'unknown',
       latencyMs: (map['latency_ms'] as num?)?.toInt() ?? 0,
@@ -448,11 +513,13 @@ class _ViewfinderOverlay extends StatelessWidget {
       children: [
         // Darkened mask outside the cutout window
         Positioned.fill(
-          child: CustomPaint(
-            painter: _ViewfinderCutoutPainter(
-              cutoutRect: cutoutRect,
-              borderRadius: 16,
-              scrimColor: Colors.black.withValues(alpha: .55),
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: _ViewfinderCutoutPainter(
+                cutoutRect: cutoutRect,
+                borderRadius: 16,
+                scrimColor: Colors.black.withValues(alpha: .55),
+              ),
             ),
           ),
         ),
@@ -624,6 +691,8 @@ class _HeroLessonSheetState extends State<_HeroLessonSheet> {
   static const _asrChannel = MethodChannel('boli/asr');
   static const _engineChannel = MethodChannel('boli/engine_methods');
 
+  ScrollController? _scrollController;
+
   // Practice state
   String _activeTarget = '';
   String _activeRoman = '';
@@ -660,7 +729,18 @@ class _HeroLessonSheetState extends State<_HeroLessonSheet> {
       _score = 0.0;
       _micError = '';
     });
-    widget.onSpeak(target);
+    // Immediately start microphone voice practice instead of playing audio
+    _startVoicePractice();
+    // Smoothly scroll down so the practice feedback is visible
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController != null && _scrollController!.hasClients) {
+        _scrollController!.animateTo(
+          _scrollController!.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   double _calculateSimilarity(String a, String b) {
@@ -753,6 +833,11 @@ class _HeroLessonSheetState extends State<_HeroLessonSheet> {
       minChildSize: 0.40,
       maxChildSize: 0.96,
       builder: (context, scrollController) {
+        _scrollController = scrollController;
+        final displayTitle = widget.lesson.topic.isNotEmpty
+            ? widget.lesson.topic
+            : (widget.ocrText.isNotEmpty ? widget.ocrText.split('\n').first.trim() : 'पाटी वाचन · Signboard');
+
         return Container(
           decoration: BoxDecoration(
             color: Boli.paper,
@@ -791,7 +876,7 @@ class _HeroLessonSheetState extends State<_HeroLessonSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          widget.lesson.topic,
+                          displayTitle,
                           style: Boli.head(23, weight: 700),
                         ),
                         if (widget.ocrText.isNotEmpty) ...[
@@ -900,9 +985,12 @@ class _HeroLessonSheetState extends State<_HeroLessonSheet> {
               if (widget.lesson.vocabulary.isNotEmpty)
                 ...widget.lesson.vocabulary.map((vocab) {
                   final isSelected = _activeTarget == vocab.l2Word;
+                  final isRecording = _micBusy && isSelected;
                   return _WordTile(
                     item: vocab,
                     isSelected: isSelected,
+                    isRecording: isRecording,
+                    score: isSelected ? _score : 0.0,
                     onListen: () => widget.onSpeak(vocab.l2Word),
                     onSelectPractice: () => _selectPracticeTarget(
                       vocab.l2Word,
@@ -920,6 +1008,23 @@ class _HeroLessonSheetState extends State<_HeroLessonSheet> {
                     style: Boli.body(14, color: Boli.inkSoft),
                   ),
                 ),
+
+              // Practice sentence card if available from signboard lesson
+              if (widget.lesson.practicePrompt.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _PracticeSentenceCard(
+                  sentence: widget.lesson.practicePrompt,
+                  isSelected: _activeTarget == widget.lesson.practicePrompt,
+                  isRecording: _micBusy && _activeTarget == widget.lesson.practicePrompt,
+                  score: _activeTarget == widget.lesson.practicePrompt ? _score : 0.0,
+                  onListen: () => widget.onSpeak(widget.lesson.practicePrompt),
+                  onSelectPractice: () => _selectPracticeTarget(
+                    widget.lesson.practicePrompt,
+                    '',
+                    widget.lesson.translation.isNotEmpty ? widget.lesson.translation : 'सराव वाक्य',
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 22),
 
@@ -968,12 +1073,16 @@ class _HeroLessonSheetState extends State<_HeroLessonSheet> {
 class _WordTile extends StatelessWidget {
   final _VocabItem item;
   final bool isSelected;
+  final bool isRecording;
+  final double score;
   final VoidCallback onListen;
   final VoidCallback onSelectPractice;
 
   const _WordTile({
     required this.item,
     required this.isSelected,
+    required this.isRecording,
+    required this.score,
     required this.onListen,
     required this.onSelectPractice,
   });
@@ -984,11 +1093,15 @@ class _WordTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: isSelected ? Boli.marigold.withValues(alpha: .12) : Boli.paper,
+        color: isRecording
+            ? Boli.madder.withValues(alpha: .08)
+            : (isSelected ? Boli.marigold.withValues(alpha: .12) : Boli.paper),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isSelected ? Boli.marigold : Boli.sand,
-          width: isSelected ? 2.2 : 1.5,
+          color: isRecording
+              ? Boli.madder
+              : (isSelected ? Boli.marigold : Boli.sand),
+          width: isSelected || isRecording ? 2.2 : 1.5,
         ),
       ),
       child: Row(
@@ -1018,6 +1131,23 @@ class _WordTile extends StatelessWidget {
                         ),
                       ),
                     ],
+                    if (isSelected && score > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: (score >= 0.7 ? Boli.leaf : (score >= 0.4 ? Boli.marigold : Boli.terracotta)).withValues(alpha: .18),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '${(score * 100).toInt()}% match',
+                          style: Boli.label(
+                            color: score >= 0.7 ? Boli.leaf : (score >= 0.4 ? Boli.marigold : Boli.terracotta),
+                            size: 11,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 3),
@@ -1040,32 +1170,149 @@ class _WordTile extends StatelessWidget {
           InkWell(
             onTap: onSelectPractice,
             borderRadius: BorderRadius.circular(12),
-            child: Container(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: isSelected ? Boli.marigold : Boli.cream,
+                color: isRecording
+                    ? Boli.madder
+                    : (isSelected ? Boli.marigold : Boli.cream),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Boli.marigold),
+                border: Border.all(
+                  color: isRecording ? Boli.madder : Boli.marigold,
+                ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.mic_rounded,
+                    isRecording ? Icons.graphic_eq_rounded : Icons.mic_rounded,
                     size: 16,
-                    color: isSelected ? Boli.ink : Boli.marigold,
+                    color: isRecording ? Colors.white : (isSelected ? Boli.ink : Boli.marigold),
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'Say it',
+                    isRecording ? 'Listening…' : 'Say it',
                     style: Boli.label(
-                      color: isSelected ? Boli.ink : Boli.marigold,
+                      color: isRecording ? Colors.white : (isSelected ? Boli.ink : Boli.marigold),
                       size: 11,
                     ),
                   ),
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Practice Sentence Card with Listen and Say it
+// ---------------------------------------------------------------------------
+
+class _PracticeSentenceCard extends StatelessWidget {
+  final String sentence;
+  final bool isSelected;
+  final bool isRecording;
+  final double score;
+  final VoidCallback onListen;
+  final VoidCallback onSelectPractice;
+
+  const _PracticeSentenceCard({
+    required this.sentence,
+    required this.isSelected,
+    required this.isRecording,
+    required this.score,
+    required this.onListen,
+    required this.onSelectPractice,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isRecording
+            ? Boli.madder.withValues(alpha: .08)
+            : (isSelected ? Boli.indigo.withValues(alpha: .08) : Boli.paper),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isRecording
+              ? Boli.madder
+              : (isSelected ? Boli.indigo : Boli.sand),
+          width: isSelected || isRecording ? 2.2 : 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.record_voice_over_rounded, size: 16, color: Boli.indigo),
+              const SizedBox(width: 6),
+              Text('PRACTICE SENTENCE · सराव वाक्य', style: Boli.label(color: Boli.indigo, size: 11)),
+              const Spacer(),
+              if (isSelected && score > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: (score >= 0.7 ? Boli.leaf : (score >= 0.4 ? Boli.marigold : Boli.terracotta)).withValues(alpha: .18),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '🎯 ${(score * 100).toInt()}% match',
+                    style: Boli.label(
+                      color: score >= 0.7 ? Boli.leaf : (score >= 0.4 ? Boli.marigold : Boli.terracotta),
+                      size: 11,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            sentence,
+            style: Boli.head(19, weight: 700, color: Boli.ink),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: onListen,
+                icon: const Icon(Icons.volume_up_rounded, size: 18, color: Boli.peacock),
+                label: Text('Listen', style: Boli.label(color: Boli.peacock, size: 12)),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Boli.peacock.withValues(alpha: .4)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+              ),
+              const SizedBox(width: 10),
+              ElevatedButton.icon(
+                onPressed: onSelectPractice,
+                icon: Icon(
+                  isRecording ? Icons.graphic_eq_rounded : Icons.mic_rounded,
+                  size: 18,
+                  color: isRecording ? Colors.white : Boli.ink,
+                ),
+                label: Text(
+                  isRecording ? 'Listening… (ऐकत आहे)' : 'Say sentence',
+                  style: Boli.label(
+                    color: isRecording ? Colors.white : Boli.ink,
+                    size: 12,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isRecording ? Boli.madder : Boli.marigold,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                ),
+              ),
+            ],
           ),
         ],
       ),
